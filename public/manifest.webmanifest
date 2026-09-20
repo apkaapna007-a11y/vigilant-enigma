@@ -1,0 +1,14 @@
+{
+  "name": "ChildBloom Rewriter",
+  "short_name": "ChildBloom",
+  "description": "A private workspace for creating evidence-based pediatric content.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f8f7",
+  "theme_color": "#f5f8f7",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
+
