@@ -16,6 +16,7 @@ export interface Settings {
   temperature: number;
   maxTokens: number;
   timeoutMs?: number;
+  corsProxyUrl?: string;       // Optional custom CORS proxy (e.g., https://your-proxy.vercel.app/api/proxy?url=)
 }
 
 export interface RewriteProgress {
@@ -27,11 +28,12 @@ export interface RewriteProgress {
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
-  baseUrl: "https://models.github.ai/inference",
-  model: "openai/gpt-4.1",
+  baseUrl: "https://openrouter.ai/api/v1",
+  model: "openai/gpt-4o-mini",
   temperature: 1.0,
   maxTokens: 20000,
   timeoutMs: 60000,
+  corsProxyUrl: "",
 };
 
 export const STORAGE_KEYS = {

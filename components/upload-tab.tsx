@@ -132,8 +132,8 @@ export function UploadTab() {
             setError(err.message);
             setProgress({ status: "error", progress: 0, currentText: "", error: err.message });
           },
-          onRetry: (attempt, max) => {
-            setError(`Retrying (${attempt}/${max})...`);
+          onRetry: (attempt, max, reason) => {
+            setError(`${reason} — Retrying (${attempt}/${max})...`);
           },
         },
         controller.signal

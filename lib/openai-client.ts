@@ -6,37 +6,51 @@ import type { Settings } from "./types";
 
 export const DEFAULT_TIMEOUT_MS = 60000; // 60s network timeout per spec
 
-// Free CORS proxies to try when direct API calls are blocked
-const CORS_PROXIES = [
-  (url: string) => `https://corsproxy.io/?${url}`,
-  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-];
+// Timeout for proxy connection attempts (fail fast so user knows quickly)
+const PROXY_TIMEOUT_MS = 8000;
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
   onComplete: (fullText: string) => void;
   onError: (error: Error) => void;
-  onRetry?: (attempt: number, maxRetries: number) => void;
+  onRetry?: (attempt: number, maxRetries: number, reason: string) => void;
 }
 
 // ─── Error Classification ─────────────────────────────────────────────────────
 
 export function isCorsError(error: any): boolean {
-  // CORS errors typically manifest as TypeError with no status code
-  // or as a fetch failure with specific message patterns
   if (error instanceof TypeError) {
     const msg = error.message?.toLowerCase() || "";
     return msg.includes("fetch") || msg.includes("network") || msg.includes("cors") || msg.includes("blocked");
   }
   const msg = error.message?.toLowerCase() || "";
-  return msg.includes("cors") || msg.includes("cross-origin") || msg.includes("access-control");
+  return msg.includes("cors") || msg.includes("cross-origin") || msg.includes("access-control") || msg.includes("tunnel_connection");
 }
 
 export function getErrorMessage(error: any): string {
   if (isCorsError(error)) {
-    return "API blocks browser requests (CORS). Try a different provider or use a CORS proxy.";
+    return "API blocks browser requests (CORS). This provider doesn't allow direct browser connections.";
   }
   return error.message || "Unknown error occurred";
+}
+
+// ─── Proxy URL Builder ────────────────────────────────────────────────────────
+
+/**
+ * Build proxy URL for a given base URL.
+ * User's custom proxy takes priority. Format: user appends `{URL}` placeholder
+ * or we auto-prepend the proxy URL to the base URL.
+ */
+function buildProxyUrl(baseUrl: string, proxyUrl: string): string {
+  if (!proxyUrl) return baseUrl;
+  // If proxy URL has {URL} placeholder, replace it
+  if (proxyUrl.includes("{URL}")) {
+    return proxyUrl.replace("{URL}", encodeURIComponent(baseUrl));
+  }
+  // Otherwise, prepend proxy (e.g., https://corsproxy.io/?https://api.example.com/v1)
+  return proxyUrl.endsWith("=")
+    ? `${proxyUrl}${encodeURIComponent(baseUrl)}`
+    : `${proxyUrl}${baseUrl}`;
 }
 
 // ─── Client ────────────────────────────────────────────────────────────────────
@@ -44,30 +58,30 @@ export function getErrorMessage(error: any): string {
 export class OpenAIClient {
   private client: OpenAI;
   private settings: Settings;
-  private proxyIndex = -1; // -1 = direct, 0+ = proxy index
+  private usingProxy = false;
 
   constructor(settings: Settings) {
     this.settings = settings;
-    this.client = this.createClient(settings);
+    this.client = this.createClient(settings, false);
   }
 
-  private createClient(settings: Settings, proxyIdx: number = -1): OpenAI {
+  private createClient(settings: Settings, useProxy: boolean): OpenAI {
     let baseUrl = settings.baseUrl;
-    if (proxyIdx >= 0 && proxyIdx < CORS_PROXIES.length) {
-      baseUrl = CORS_PROXIES[proxyIdx](baseUrl);
+    if (useProxy && settings.corsProxyUrl?.trim()) {
+      baseUrl = buildProxyUrl(settings.baseUrl, settings.corsProxyUrl.trim());
     }
     return new OpenAI({
       apiKey: settings.apiKey,
       baseURL: baseUrl,
-      dangerouslyAllowBrowser: true, // Required for browser usage
+      dangerouslyAllowBrowser: true,
       timeout: DEFAULT_TIMEOUT_MS,
     });
   }
 
   updateSettings(settings: Settings) {
     this.settings = settings;
-    this.proxyIndex = -1;
-    this.client = this.createClient(settings);
+    this.usingProxy = false;
+    this.client = this.createClient(settings, false);
   }
 
   async streamRewrite(
@@ -127,8 +141,8 @@ export class OpenAIClient {
 
         if (error.status === 429) {
           if (attempt < maxRetries) {
-            const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-            callbacks.onRetry?.(attempt, maxRetries);
+            const delay = Math.pow(2, attempt) * 1000;
+            callbacks.onRetry?.(attempt, maxRetries, "Rate limited");
             await sleep(delay);
             continue;
           }
@@ -137,41 +151,39 @@ export class OpenAIClient {
         if (error.status >= 500) {
           if (attempt < maxRetries) {
             const delay = Math.pow(2, attempt) * 1000;
-            callbacks.onRetry?.(attempt, maxRetries);
+            callbacks.onRetry?.(attempt, maxRetries, "Server error");
             await sleep(delay);
             continue;
           }
         }
 
         // CORS / network errors — try proxy fallback
+        if (isCorsError(error) && !this.usingProxy && this.settings.corsProxyUrl?.trim()) {
+          this.usingProxy = true;
+          this.client = this.createClient(this.settings, true);
+          callbacks.onRetry?.(attempt, maxRetries, "CORS blocked — trying proxy");
+          await sleep(500);
+          continue;
+        }
+
+        // CORS error with no proxy configured — give actionable error
         if (isCorsError(error)) {
-          const nextProxy = this.proxyIndex + 1;
-          if (nextProxy < CORS_PROXIES.length) {
-            this.proxyIndex = nextProxy;
-            this.client = this.createClient(this.settings, nextProxy);
-            callbacks.onRetry?.(attempt, maxRetries);
-            // Brief delay before proxy retry
-            await sleep(500);
-            continue;
-          }
-          // All proxies exhausted
+          const proxyHint = this.settings.corsProxyUrl?.trim()
+            ? "Your proxy is also failing. Try a different proxy or use a CORS-enabled provider."
+            : "Set a custom CORS proxy in Settings, or use a CORS-enabled provider like OpenRouter, OpenAI, or Together AI.";
           callbacks.onError(new Error(
-            "API blocks browser requests (CORS). All proxy attempts failed. " +
-            "Try a CORS-enabled provider like OpenAI, or set up your own proxy."
+            `CORS blocked: ${this.settings.baseUrl} doesn't allow browser requests. ${proxyHint}`
           ));
           throw error;
         }
 
-        // Timeout errors — try proxy as last resort
-        if (error.message?.includes("timeout") || error.message?.includes("ETIMEDOUT")) {
-          const nextProxy = this.proxyIndex + 1;
-          if (nextProxy < CORS_PROXIES.length) {
-            this.proxyIndex = nextProxy;
-            this.client = this.createClient(this.settings, nextProxy);
-            callbacks.onRetry?.(attempt, maxRetries);
-            await sleep(500);
-            continue;
-          }
+        // Timeout errors — try proxy if available
+        if ((error.message?.includes("timeout") || error.message?.includes("ETIMEDOUT")) && !this.usingProxy && this.settings.corsProxyUrl?.trim()) {
+          this.usingProxy = true;
+          this.client = this.createClient(this.settings, true);
+          callbacks.onRetry?.(attempt, maxRetries, "Timeout — trying proxy");
+          await sleep(500);
+          continue;
         }
 
         // For other errors, throw immediately
@@ -185,16 +197,22 @@ export class OpenAIClient {
     throw lastError;
   }
 
-  async testConnection(): Promise<boolean> {
+  async testConnection(): Promise<{ ok: boolean; error?: string }> {
     try {
       await this.client.chat.completions.create({
         model: this.settings.model,
         messages: [{ role: "user", content: "Hello" }],
         max_tokens: 5,
       });
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (err: any) {
+      if (isCorsError(err)) {
+        return {
+          ok: false,
+          error: "CORS blocked. This provider doesn't allow browser requests. Use OpenRouter or set a proxy in Settings."
+        };
+      }
+      return { ok: false, error: err.message || "Connection failed" };
     }
   }
 }
