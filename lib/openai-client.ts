@@ -1,10 +1,16 @@
-// OpenAI-compatible client with streaming + retry logic
+// OpenAI-compatible client with streaming + retry logic + CORS proxy fallback
 // All calls happen directly from the browser — no server intermediary
 
 import OpenAI from "openai";
 import type { Settings } from "./types";
 
 export const DEFAULT_TIMEOUT_MS = 60000; // 60s network timeout per spec
+
+// Free CORS proxies to try when direct API calls are blocked
+const CORS_PROXIES = [
+  (url: string) => `https://corsproxy.io/?${url}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 
 export interface StreamCallbacks {
   onToken: (token: string) => void;
@@ -38,12 +44,21 @@ export function getErrorMessage(error: any): string {
 export class OpenAIClient {
   private client: OpenAI;
   private settings: Settings;
+  private proxyIndex = -1; // -1 = direct, 0+ = proxy index
 
   constructor(settings: Settings) {
     this.settings = settings;
-    this.client = new OpenAI({
+    this.client = this.createClient(settings);
+  }
+
+  private createClient(settings: Settings, proxyIdx: number = -1): OpenAI {
+    let baseUrl = settings.baseUrl;
+    if (proxyIdx >= 0 && proxyIdx < CORS_PROXIES.length) {
+      baseUrl = CORS_PROXIES[proxyIdx](baseUrl);
+    }
+    return new OpenAI({
       apiKey: settings.apiKey,
-      baseURL: settings.baseUrl,
+      baseURL: baseUrl,
       dangerouslyAllowBrowser: true, // Required for browser usage
       timeout: DEFAULT_TIMEOUT_MS,
     });
@@ -51,12 +66,8 @@ export class OpenAIClient {
 
   updateSettings(settings: Settings) {
     this.settings = settings;
-    this.client = new OpenAI({
-      apiKey: settings.apiKey,
-      baseURL: settings.baseUrl,
-      dangerouslyAllowBrowser: true,
-      timeout: DEFAULT_TIMEOUT_MS,
-    });
+    this.proxyIndex = -1;
+    this.client = this.createClient(settings);
   }
 
   async streamRewrite(
@@ -132,10 +143,35 @@ export class OpenAIClient {
           }
         }
 
-        // Timeout / network / CORS errors
+        // CORS / network errors — try proxy fallback
         if (isCorsError(error)) {
-          callbacks.onError(new Error(getErrorMessage(error)));
+          const nextProxy = this.proxyIndex + 1;
+          if (nextProxy < CORS_PROXIES.length) {
+            this.proxyIndex = nextProxy;
+            this.client = this.createClient(this.settings, nextProxy);
+            callbacks.onRetry?.(attempt, maxRetries);
+            // Brief delay before proxy retry
+            await sleep(500);
+            continue;
+          }
+          // All proxies exhausted
+          callbacks.onError(new Error(
+            "API blocks browser requests (CORS). All proxy attempts failed. " +
+            "Try a CORS-enabled provider like OpenAI, or set up your own proxy."
+          ));
           throw error;
+        }
+
+        // Timeout errors — try proxy as last resort
+        if (error.message?.includes("timeout") || error.message?.includes("ETIMEDOUT")) {
+          const nextProxy = this.proxyIndex + 1;
+          if (nextProxy < CORS_PROXIES.length) {
+            this.proxyIndex = nextProxy;
+            this.client = this.createClient(this.settings, nextProxy);
+            callbacks.onRetry?.(attempt, maxRetries);
+            await sleep(500);
+            continue;
+          }
         }
 
         // For other errors, throw immediately

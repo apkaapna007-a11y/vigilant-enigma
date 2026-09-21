@@ -6,14 +6,39 @@ export type OutputFormat = "cms-html" | "chirpy" | "clean-md";
 
 let cachedSoul: string | null = null;
 
+// ─── soul.md Integrity Check ──────────────────────────────────────────────────
+
+const REQUIRED_SECTIONS = [
+  "IDENTITY",
+  "STRUCTURE",
+  "VOICE",
+  "HUMANIZATION",
+  "SEO",
+  "MEDICAL",
+];
+
+/**
+ * Verify fetched soul.md contains all required sections.
+ * Returns { valid: boolean, missing: string[] }
+ */
+export function validateSoul(content: string): { valid: boolean; missing: string[] } {
+  const upper = content.toUpperCase();
+  const missing = REQUIRED_SECTIONS.filter(
+    (section) => !upper.includes(section)
+  );
+  return { valid: missing.length === 0, missing };
+}
+
+// ─── Format Instructions ──────────────────────────────────────────────────────
+
 // Format-specific instruction appended to master prompt
 const FORMAT_INSTRUCTIONS: Record<OutputFormat, string> = {
   "cms-html":
-    "\n\n## OUTPUT FORMAT: CMS-Ready HTML\n\nOutput clean, semantic HTML using <article>, <section>, <nav>, <header> elements. Use <details>/<summary> for FAQs. All headings get id attributes for TOC anchoring. Use <strong> for key terms on first mention. Use <em> for subtle emphasis only.",
+    "\n\n## OUTPUT FORMAT: CMS-Ready HTML\n\nOutput clean, semantic HTML using <article>, <section>, <nav>, <header> elements. Use <details>/<summary> for FAQs. All headings get id attributes for TOC anchoring. Use <strong> for key terms on first mention. Use <em> for subtle emphasis only. Do NOT output YAML frontmatter. Do NOT wrap in code fences.",
   chirpy:
-    "\n\n## OUTPUT FORMAT: Chirpy Jekyll Markdown\n\nOutput standard markdown with YAML frontmatter at the top. The frontmatter must include:\n---\ntitle: \"Article Title\"\ndescription: \"One sentence summary\"\nauthor: [AUTHOR_NAME]\ndate: [CURRENT_DATE]\ncategories: [Parenting]\ntags: [relevant, tags, here]\n---\n\nAfter the frontmatter, write the article in standard markdown. Do NOT use HTML tags — pure markdown only.",
+    "\n\n## OUTPUT FORMAT: Chirpy Jekyll Markdown\n\nOutput standard markdown with YAML frontmatter at the top. The frontmatter must include:\n---\ntitle: \"Article Title\"\ndescription: \"One sentence summary\"\nauthor: [AUTHOR_NAME]\ndate: [CURRENT_DATE]\ncategories: [Parenting]\ntags: [relevant, tags, here]\n---\n\nAfter the frontmatter, write the article in standard markdown. Do NOT use HTML tags — pure markdown only. Do NOT wrap the entire output in code fences.",
   "clean-md":
-    "\n\n## OUTPUT FORMAT: Clean Markdown\n\nOutput standard markdown without any frontmatter or HTML. Pure content only. Use markdown headings (##, ###), bold (**text**), italic (*text*), lists, and tables. No YAML frontmatter. No HTML tags.",
+    "\n\n## OUTPUT FORMAT: Clean Markdown\n\nOutput standard markdown without any frontmatter or HTML. Pure content only. Use markdown headings (##, ###), bold (**text**), italic (*text*), lists, and tables. No YAML frontmatter. No HTML tags. Do NOT wrap the entire output in code fences.",
 };
 
 // Mode-specific instruction appended to master prompt
@@ -24,17 +49,34 @@ const MODE_INSTRUCTIONS: Record<WritingMode, string> = {
     "\n\n## WRITING MODE: Claude SEO (PRIMARY)\nPrioritize analytical depth: thesis-driven, evidence hierarchy, counter-arguments, data density (3+ stats with citations), comparison tables, step-by-step guides with WHY.",
 };
 
+// ─── Master Prompt Loading ────────────────────────────────────────────────────
+
 /**
  * Fetch the master soul.md prompt (cached after first load)
+ * Throws if the prompt fails to load or fails integrity check
  */
 async function getMasterPrompt(): Promise<string> {
   if (cachedSoul) return cachedSoul;
 
   try {
     const res = await fetch("/soul.md");
-    cachedSoul = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+
+    // Integrity check — verify key sections exist
+    const check = validateSoul(text);
+    if (!check.valid) {
+      throw new Error(
+        `soul.md is missing required sections: ${check.missing.join(", ")}. ` +
+        "The file may be corrupted or incomplete."
+      );
+    }
+
+    cachedSoul = text;
     return cachedSoul;
-  } catch {
+  } catch (err: any) {
+    if (err.message?.includes("missing required sections")) throw err;
+    // Network/load failure — use fallback
     cachedSoul = "You are a pediatric content writer for childbloom.site.";
     return cachedSoul;
   }
@@ -76,15 +118,24 @@ export async function buildSystemPrompt(
 
 /**
  * Build user message with topic + keyword + author
+ * Includes explicit format reminder so AI can't ignore output format
  */
 export function buildUserPrompt(options: {
   topic: string;
   focusKeyword: string;
   wordCount: number;
   authorName: string;
+  outputFormat: OutputFormat;
   sourceText?: string;
 }): string {
-  const { topic, focusKeyword, wordCount, authorName, sourceText } = options;
+  const { topic, focusKeyword, wordCount, authorName, outputFormat, sourceText } = options;
+
+  // Format reminder appended to user message (belt + suspenders approach)
+  const formatReminder = outputFormat === "cms-html"
+    ? "\n\nREMINDER: Output CMS-Ready HTML only. No YAML frontmatter. No code fences."
+    : outputFormat === "chirpy"
+      ? "\n\nREMINDER: Output Chirpy Jekyll Markdown with YAML frontmatter. No HTML tags. No code fences."
+      : "\n\nREMINDER: Output Clean Markdown only. No YAML frontmatter. No HTML tags. No code fences.";
 
   if (sourceText) {
     // Rewrite mode
@@ -99,7 +150,7 @@ ${sourceText}
 
 ---
 
-Begin the rewritten article now. Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.`;
+Begin the rewritten article now. Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.${formatReminder}`;
   }
 
   // Generate from scratch mode
@@ -118,7 +169,7 @@ Begin the rewritten article now. Output ONLY the final article — no meta-comme
 - Use the specified output format (CMS-Ready HTML or Markdown)
 - Author should be listed as "${authorName}" in the byline/frontmatter
 
-Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.`;
+Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.${formatReminder}`;
 }
 
 /**

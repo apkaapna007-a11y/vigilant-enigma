@@ -9,10 +9,12 @@ import { Settings, RewriteProgress } from "@/lib/types";
 import { getSettings, saveToHistory, generateId, countWords } from "@/lib/history";
 import {
   Zap, AlertCircle, Copy, Download, RotateCcw, Sparkles,
-  FileText, Hash, User, PenTool, Target, Loader2
+  FileText, Hash, User, PenTool, Target, Loader2, RefreshCw
 } from "lucide-react";
 
 const WORD_COUNTS = [1500, 2000, 2500, 3000, 4000];
+
+type GenerationMode = "generate" | "rewrite";
 
 export function UploadTab() {
   // Form state
@@ -22,6 +24,8 @@ export function UploadTab() {
   const [authorName, setAuthorName] = useState("ChildBloom Editorial");
   const [mode, setMode] = useState<WritingMode>("contentforge");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("cms-html");
+  const [genMode, setGenMode] = useState<GenerationMode>("generate");
+  const [sourceText, setSourceText] = useState("");
 
   // UI state
   const [progress, setProgress] = useState<RewriteProgress>({
@@ -34,7 +38,40 @@ export function UploadTab() {
 
   const isProcessing = ["parsing", "rewriting", "streaming"].includes(progress.status);
   const isComplete = progress.status === "complete";
-  const canGenerate = topic.trim().length > 0 && focusKeyword.trim().length > 0;
+  const canGenerate = topic.trim().length > 0 && focusKeyword.trim().length > 0
+    && (genMode === "generate" || sourceText.trim().length > 0);
+
+  /**
+   * Truncate text to target word count, cutting at the last complete section
+   * (heading or paragraph break) before the limit.
+   */
+  function truncateToWordCount(text: string, target: number): string {
+    const maxWords = Math.round(target * 1.1); // Allow 10% over
+    const words = text.split(/\s+/);
+    if (words.length <= maxWords) return text;
+
+    // Find a good cut point — last heading or double newline before limit
+    const cutPoint = maxWords;
+    const beforeCut = words.slice(0, cutPoint).join(" ");
+
+    // Try to cut at last heading
+    const lastHeading = beforeCut.lastIndexOf("\n## ");
+    const lastParaBreak = beforeCut.lastIndexOf("\n\n");
+
+    // Use the later of the two cut points (closer to target)
+    const cutAt = Math.max(lastHeading, lastParaBreak);
+    if (cutAt > target * 0.5) {
+      return beforeCut.slice(0, cutAt).trim() + "\n\n[Article truncated to target word count]";
+    }
+
+    // Fallback: cut at last sentence before limit
+    const lastSentence = beforeCut.lastIndexOf(". ");
+    if (lastSentence > target * 0.5) {
+      return beforeCut.slice(0, lastSentence + 1).trim() + "\n\n[Article truncated to target word count]";
+    }
+
+    return beforeCut.trim() + "\n\n[Article truncated to target word count]";
+  }
 
   async function generateArticle() {
     const settings = getSettings() as Settings | null;
@@ -44,7 +81,9 @@ export function UploadTab() {
     }
 
     if (!canGenerate) {
-      setError("Please enter a topic and focus keyword.");
+      setError(genMode === "rewrite"
+        ? "Please enter a topic, focus keyword, and source article text."
+        : "Please enter a topic and focus keyword.");
       return;
     }
 
@@ -56,12 +95,14 @@ export function UploadTab() {
       // Build prompts (loads soul.md + format + mode)
       const systemPrompt = await buildSystemPrompt(mode, outputFormat, wordCount);
 
-      // Build user prompt with topic + keyword + author
+      // Build user prompt with topic + keyword + author + format
       const userPrompt = buildUserPrompt({
         topic,
         focusKeyword,
         wordCount,
         authorName,
+        outputFormat,
+        sourceText: genMode === "rewrite" ? sourceText : undefined,
       });
 
       // Call API
@@ -92,22 +133,28 @@ export function UploadTab() {
             setProgress({ status: "error", progress: 0, currentText: "", error: err.message });
           },
           onRetry: (attempt, max) => {
-            setError(`Rate limited. Retrying (${attempt}/${max})...`);
+            setError(`Retrying (${attempt}/${max})...`);
           },
         },
         controller.signal
       );
 
+      // Fix C: Truncate if output exceeds target by >15%
+      const finalText = truncateToWordCount(fullText, wordCount);
+      if (finalText !== fullText) {
+        setProgress({ status: "complete", progress: 100, currentText: finalText });
+      }
+
       // Save to history
-      if (fullText) {
+      if (finalText) {
         saveToHistory({
           id: generateId(),
           fileName: `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}.${outputFormat === "cms-html" ? "html" : "md"}`,
-          originalText: `Topic: ${topic}\nKeyword: ${focusKeyword}`,
-          rewrittenText: fullText,
+          originalText: genMode === "rewrite" ? sourceText.slice(0, 500) : `Topic: ${topic}\nKeyword: ${focusKeyword}`,
+          rewrittenText: finalText,
           mode,
           outputFormat,
-          wordCount: countWords(fullText),
+          wordCount: countWords(finalText),
           createdAt: new Date().toISOString(),
         });
       }
@@ -144,10 +191,49 @@ export function UploadTab() {
   function resetForm() {
     setProgress({ status: "idle", progress: 0, currentText: "" });
     setError(null);
+    setSourceText("");
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      {/* Generation Mode Toggle */}
+      <div className="space-y-2">
+        <label className="text-sm font-semibold flex items-center gap-2">
+          <RefreshCw size={14} className="text-amber-500" />
+          Generation Mode
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setGenMode("generate")}
+            disabled={isProcessing}
+            className={`px-4 py-3 rounded-lg text-sm transition-all ${
+              genMode === "generate"
+                ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
+                : "bg-muted text-foreground hover:bg-muted/80 border border-border"
+            }`}
+          >
+            <span className="block font-semibold">Generate from Scratch</span>
+            <span className={`text-xs ${genMode === "generate" ? "text-amber-100" : "text-muted-foreground"}`}>
+              Write a new article from topic + keyword
+            </span>
+          </button>
+          <button
+            onClick={() => setGenMode("rewrite")}
+            disabled={isProcessing}
+            className={`px-4 py-3 rounded-lg text-sm transition-all ${
+              genMode === "rewrite"
+                ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
+                : "bg-muted text-foreground hover:bg-muted/80 border border-border"
+            }`}
+          >
+            <span className="block font-semibold">Rewrite Existing Article</span>
+            <span className={`text-xs ${genMode === "rewrite" ? "text-amber-100" : "text-muted-foreground"}`}>
+              Paste an article to rewrite
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* Topic Input */}
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
@@ -221,6 +307,26 @@ export function UploadTab() {
         />
       </div>
 
+      {/* Source Text (only in rewrite mode) */}
+      {genMode === "rewrite" && (
+        <div className="space-y-2 animate-fade-in">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <FileText size={14} className="text-amber-500" />
+            Source Article to Rewrite
+          </label>
+          <textarea
+            value={sourceText}
+            onChange={(e) => setSourceText(e.target.value)}
+            placeholder="Paste the article you want to rewrite here..."
+            className="input min-h-[200px] resize-y font-mono text-sm"
+            disabled={isProcessing}
+          />
+          <p className="text-xs text-muted-foreground">
+            {sourceText.trim() ? `${countWords(sourceText)} words pasted` : "Paste your article text above"}
+          </p>
+        </div>
+      )}
+
       {/* Mode Selector */}
       <ModeSelector value={mode} onChange={setMode} />
 
@@ -276,7 +382,7 @@ export function UploadTab() {
             className="btn-primary animate-pulse-glow"
           >
             <Zap size={14} />
-            Generate Article
+            {genMode === "rewrite" ? "Rewrite Article" : "Generate Article"}
           </button>
         )}
       </div>
@@ -288,7 +394,7 @@ export function UploadTab() {
         progress={progress.progress}
       />
 
-      {/* Post-complete actions */}
+      {/* Post-complete Actions */}
       {isComplete && (
         <div className="flex flex-wrap gap-2 animate-slide-up">
           <button className="btn-secondary" onClick={copyToClipboard}>
