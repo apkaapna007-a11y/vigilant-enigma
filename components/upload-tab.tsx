@@ -56,6 +56,7 @@ export function UploadTab() {
 
   // Multi-topic state
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [selectedTopicIds, setSelectedTopicIds] = useState<Set<string>>(new Set());
 
   const isProcessing = ["parsing", "rewriting", "streaming"].includes(progress.status);
   const isComplete = progress.status === "complete";
@@ -584,13 +585,20 @@ export function UploadTab() {
       </div>
 
       {/* Multi-Topic Input */}
-      <MultiTopicInput topics={topics} onTopicsChange={setTopics} />
+      <MultiTopicInput
+        topics={topics}
+        onTopicsChange={setTopics}
+        selectedIds={selectedTopicIds}
+        onSelectionChange={setSelectedTopicIds}
+      />
 
       {/* Multi-Topic Processor */}
       {topics.length > 0 && (
         <MultiTopicProcessor
           topics={topics}
           onTopicsUpdate={setTopics}
+          selectedIds={selectedTopicIds}
+          onSelectionChange={setSelectedTopicIds}
           mode={mode}
           outputFormat={outputFormat}
           wordCount={wordCount}
