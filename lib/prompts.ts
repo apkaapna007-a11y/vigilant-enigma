@@ -6,7 +6,14 @@ export type OutputFormat = "cms-html" | "chirpy" | "clean-md";
 
 let cachedSoul: string | null = null;
 
-const REQUIRED_SECTIONS = ["IDENTITY", "STRUCTURE", "VOICE", "HUMANIZATION", "SEO", "MEDICAL"];
+const REQUIRED_SECTIONS = [
+  "IDENTITY",
+  "STRUCTURE",
+  "VOICE",
+  "HUMANIZATION",
+  "SEO",
+  "MEDICAL",
+];
 
 export function validateSoul(content: string): { valid: boolean; missing: string[] } {
   const upper = content.toUpperCase();
@@ -32,11 +39,11 @@ const PRESERVATION_RULES = `
 ## TOPIC & FACT PRESERVATION (NON-NEGOTIABLE)
 
 - The article topic, core facts, medical claims, and original intent MUST be preserved exactly.
-- Do not expand into adjacent topics.
+- Do not expand into adjacent topics (e.g. do not turn a sleep article into a nutrition or developmental-milestones article).
 - Do not invent new statistics, study names, years, or expert quotes.
-- If the source lacks a citation, use a calibrated caveat rather than fabricating one.
+- If the source lacks a citation, use a calibrated caveat ("research is mixed", "current guidance suggests") rather than fabricating one.
 - Remove any visible AI artifacts, code fences, placeholder text, or self-referential language.
-- No duplicate sections. No repeated paragraphs. No filler.
+- No duplicate sections. No repeated paragraphs. No filler that restates the same point.
 `;
 
 const FORMAT_INSTRUCTIONS: Record<OutputFormat, string> = {
@@ -54,6 +61,7 @@ Required structure:
   </header>
   <nav class="cb-toc" aria-label="Table of Contents">...</nav>
   <section id="...">...</section>
+  ...
   <section id="conclusion">...</section>
   <section id="faqs"> (only if they add new value)
     <details><summary>...</summary><p>...</p></details>
@@ -66,15 +74,16 @@ Rules:
 - FAQs use <details>/<summary>
 - <strong> only on first mention of key terms
 - No inline styles
+- No script/style tags
 - Meta description (cb-excerpt) 120-160 characters
-- Ready for direct paste into WordPress
+- Ready for direct paste into WordPress Gutenberg / classic editor
 `,
   chirpy: `
 ## OUTPUT FORMAT: Chirpy Jekyll Markdown
 
-Output ONLY standard markdown with YAML frontmatter at the very top. No HTML tags. No code fences.
+Output ONLY standard markdown with YAML frontmatter at the very top. No HTML tags. No code fences wrapping the whole article.
 
-Frontmatter:
+Frontmatter must be:
 ---
 title: "Exact title"
 description: "One sentence summary (120-160 chars)"
@@ -85,12 +94,13 @@ tags: [relevant, tags]
 toc: true
 ---
 
-Then pure markdown body.
+Then pure markdown body. Use ## / ### headings, **bold**, *italic*, tables, numbered lists. No HTML.
 `,
   "clean-md": `
 ## OUTPUT FORMAT: Clean Markdown
 
 Output ONLY pure markdown. No YAML frontmatter. No HTML tags. No code fences.
+
 Use ## / ### headings, **bold**, *italic*, tables, lists. Start directly with the H1 title.
 `,
 };
@@ -99,42 +109,52 @@ const MODE_INSTRUCTIONS: Record<WritingMode, string> = {
   contentforge: `
 ## WRITING MODE: ContentForge SEO
 
-After medical safety and topic preservation:
+After medical safety and topic preservation are satisfied:
 - Place exact-match focus keyword in the first 100 words
 - Use semantic variations and LSI keywords naturally
 - Target distinct query variants in H2 headings
-- Prefer high-value FAQs only if they answer new questions
-- Never keyword-stuff
+- Prefer 8-12 high-value FAQs only if they answer new questions
+- Structure for extractability (front-loaded answers)
+- Never keyword-stuff or force density that harms readability
 `,
   "claude-seo": `
 ## WRITING MODE: Claude SEO (analytical depth)
 
-After medical safety and topic preservation:
+After medical safety and topic preservation are satisfied:
 - Thesis-driven structure
 - Evidence hierarchy with real citations only
 - Address 1-2 real counter-arguments
-- Prefer comparison tables or step-by-step guides when helpful
-- Never invent statistics
+- Prefer comparison tables or step-by-step guides when they genuinely help
+- Data density only with attributable sources
+- Never invent statistics to increase "depth"
 `,
 };
 
 async function getMasterPrompt(): Promise<string> {
   if (cachedSoul) return cachedSoul;
+
   try {
     const res = await fetch("/soul.md");
-    if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const text = await res.text();
+
     const check = validateSoul(text);
     if (!check.valid) {
-      throw new Error(\`soul.md is missing required sections: \${check.missing.join(", \')}. The file may be corrupted.\`);
+      throw new Error(
+        "soul.md is missing required sections: " +
+          check.missing.join(", ") +
+          ". The file may be corrupted or incomplete."
+      );
     }
+
     cachedSoul = text;
     return cachedSoul;
   } catch (err: any) {
     if (err.message?.includes("missing required sections")) throw err;
-    cachedSoul = \`You are a senior pediatric content strategist for childbloom.site.
-Always prioritize medical accuracy, never invent sources, and stay strictly on the given topic.
-Include safety disclaimers. Output only the final article.\`;
+    cachedSoul =
+      "You are a senior pediatric content strategist for childbloom.site. " +
+      "Always prioritize medical accuracy, never invent sources, and stay strictly on the given topic. " +
+      "Include safety disclaimers. Output only the final article.";
     return cachedSoul;
   }
 }
@@ -146,19 +166,21 @@ export async function buildSystemPrompt(
   _options: { topic?: string; focusKeyword?: string; authorName?: string } = {}
 ): Promise<string> {
   const master = await getMasterPrompt();
+
   const base = master.includes("## SOURCE ARTICLE")
     ? master.split("## SOURCE ARTICLE")[0].trim()
     : master.includes("## TASK INSTRUCTIONS")
       ? master.split("## TASK INSTRUCTIONS")[0].trim()
       : master.trim();
 
-  const wordCountInstruction = \`
-## WORD COUNT TARGET
-Aim for approximately \${wordCount.toLocaleString()} words (±15%).
-Quality and medical accuracy outrank hitting an exact number.
-Never pad with filler or duplicate content.
-Never truncate mid-sentence.
-\`;
+  const wordCountInstruction =
+    "\n\n## WORD COUNT TARGET\n" +
+    "Aim for approximately " +
+    wordCount.toLocaleString() +
+    " words (±15%).\n" +
+    "Quality and medical accuracy outrank hitting an exact number.\n" +
+    "Never pad with filler or duplicate content to reach a count.\n" +
+    "Never truncate mid-sentence or leave incomplete sections.\n";
 
   return (
     base +
@@ -188,57 +210,74 @@ export function buildUserPrompt(options: {
         ? "\n\nFINAL REMINDER: Output Chirpy Markdown with YAML frontmatter only. No HTML. No code fences."
         : "\n\nFINAL REMINDER: Output Clean Markdown only. No YAML. No HTML. No code fences.";
 
-  const commonRules = \`
-STRICT RULES FOR THIS REQUEST:
-- Stay exclusively on the topic: "\${topic}"
-- Focus keyword: "\${focusKeyword}" must appear naturally in the first 100 words
-- Author byline: "\${authorName}"
-- Target ~\${wordCount.toLocaleString()} words
-- Never invent statistics, study names, years, or quotes
-- Never add unrelated sections or topics
-- Never output code fences, outlines, or explanations outside the article
-- Medical safety first. If unsure about a claim, use a calibrated caveat.
-\`;
+  const commonRules =
+    "\nSTRICT RULES FOR THIS REQUEST:\n" +
+    '- Stay exclusively on the topic: "' +
+    topic +
+    '"\n' +
+    '- Focus keyword: "' +
+    focusKeyword +
+    '" must appear naturally in the first 100 words\n' +
+    '- Author byline: "' +
+    authorName +
+    '"\n' +
+    "- Target ~" +
+    wordCount.toLocaleString() +
+    " words\n" +
+    "- Never invent statistics, study names, years, or quotes\n" +
+    "- Never add unrelated sections or topics\n" +
+    "- Never output code fences, outlines, or explanations outside the article\n" +
+    "- Medical safety first. If unsure about a claim, use a calibrated caveat.\n";
 
   if (sourceText) {
-    return \`## SOURCE ARTICLE TO REWRITE (preserve topic, facts, and medical intent)
-
-Topic: \${topic}
-Focus Keyword: \${focusKeyword}
-Target Author: \${authorName}
-Target Length: ~\${wordCount.toLocaleString()} words
-
-SOURCE TEXT:
-\${sourceText}
-
----
-\${commonRules}
-Rewrite the source from scratch according to the system hierarchy.
-Preserve every factual medical claim and the original intent.
-Expand depth and structure, but do not change the core topic or invent new medical facts.
-Output ONLY the final article.\${formatReminder}\`;
+    return (
+      "## SOURCE ARTICLE TO REWRITE (preserve topic, facts, and medical intent)\n\n" +
+      "Topic: " +
+      topic +
+      "\nFocus Keyword: " +
+      focusKeyword +
+      "\nTarget Author: " +
+      authorName +
+      "\nTarget Length: ~" +
+      wordCount.toLocaleString() +
+      " words\n\nSOURCE TEXT:\n" +
+      sourceText +
+      "\n\n---\n" +
+      commonRules +
+      "Rewrite the source from scratch according to the system hierarchy.\n" +
+      "Preserve every factual medical claim and the original intent.\n" +
+      "Expand depth and structure, but do not change the core topic or invent new medical facts.\n" +
+      "Output ONLY the final article." +
+      formatReminder
+    );
   }
 
-  return \`Write a complete original article on the following topic only.
-
-**Topic:** \${topic}
-**Focus Keyword:** \${focusKeyword}
-**Author:** \${authorName}
-**Target Length:** ~\${wordCount.toLocaleString()} words
-
-\${commonRules}
-Output ONLY the final article.\${formatReminder}\`;
+  return (
+    "Write a complete original article on the following topic only.\n\n" +
+    "**Topic:** " +
+    topic +
+    "\n**Focus Keyword:** " +
+    focusKeyword +
+    "\n**Author:** " +
+    authorName +
+    "\n**Target Length:** ~" +
+    wordCount.toLocaleString() +
+    " words\n\n" +
+    commonRules +
+    "Output ONLY the final article." +
+    formatReminder
+  );
 }
 
 export function buildContinuePrompt(previousContent: string): string {
-  return \`Continue the article seamlessly from where it stopped.
-Do not repeat previous content. Do not add meta-commentary.
-Stay on the same topic and medical safety rules.
-
-LAST 400 CHARACTERS:
-...\${previousContent.slice(-400)}
-
-Continue now:\`;
+  return (
+    "Continue the article seamlessly from where it stopped.\n" +
+    "Do not repeat previous content. Do not add meta-commentary.\n" +
+    "Stay on the same topic and medical safety rules.\n\n" +
+    "LAST 400 CHARACTERS:\n..." +
+    previousContent.slice(-400) +
+    "\n\nContinue now:"
+  );
 }
 
 export function isOutputIncomplete(text: string): boolean {
@@ -269,8 +308,8 @@ export function validateAndCleanOutput(
   const warnings: string[] = [];
   let cleaned = text.trim();
 
-  if (cleaned.startsWith("\`\`\`")) {
-    cleaned = cleaned.replace(/^\`\`\`(?:html|markdown|md|yaml)?\n?/i, "").replace(/\n?\`\`\`$/i, "");
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:html|markdown|md|yaml)?\n?/i, "").replace(/\n?```$/i, "");
     warnings.push("Removed surrounding code fences");
   }
 
@@ -307,7 +346,7 @@ export function validateAndCleanOutput(
 
   const firstChunk = cleaned.slice(0, 600).toLowerCase();
   if (focusKeyword && !firstChunk.includes(focusKeyword.toLowerCase().slice(0, 20))) {
-    warnings.push(\`Focus keyword "\${focusKeyword}" may be missing from the opening\`);
+    warnings.push('Focus keyword "' + focusKeyword + '" may be missing from the opening');
   }
 
   const topicTokens = topic.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
@@ -334,7 +373,9 @@ export function validateAndCleanOutput(
   cleaned = cleaned.trim();
 
   return {
-    ok: warnings.length === 0 || warnings.every((w) => !w.includes("topic drift") && !w.includes("missing")),
+    ok:
+      warnings.length === 0 ||
+      warnings.every((w) => !w.includes("topic drift") && !w.includes("missing")),
     warnings,
     cleanedText: cleaned,
   };
