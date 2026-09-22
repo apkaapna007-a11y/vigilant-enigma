@@ -20,6 +20,7 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
   const [editKeyword, setEditKeyword] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingTopicIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dragSource, setDragSource] = useState<string | null>(null);
 
@@ -130,6 +131,11 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
     return icons[status];
   };
 
+  const openFilePicker = (topicId: string) => {
+    pendingTopicIdRef.current = topicId;
+    fileInputRef.current?.click();
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -137,7 +143,7 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
         <button
           onClick={addTopic}
           disabled={disabled}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <Plus size={13} />
           Add Topic
@@ -151,7 +157,7 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
         </div>
       ) : (
         <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-          {topics.map((topic, idx) => (
+          {topics.map((topic) => (
             <div
               key={topic.id}
               draggable={!disabled}
@@ -161,15 +167,13 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
               onDragLeave={() => setDragOverId(null)}
               className={`rounded-lg border transition-all ${
                 dragOverId === topic.id
-                  ? "border-amber-400 bg-amber-50 ring-2 ring-amber-200"
+                  ? "border-primary bg-accent/40 ring-1 ring-primary/30"
                   : "border-border bg-card"
-              } ${disabled ? "opacity-60" : "hover:border-amber-300"}`}
+              } ${disabled ? "opacity-60" : "hover:border-primary/40"}`}
             >
-              {/* Header */}
               <div className="flex items-center gap-2 p-3">
                 <GripVertical size={16} className="text-muted-foreground cursor-move" />
 
-                {/* Status Badge */}
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${getStatusColor(
                     topic.status
@@ -179,7 +183,6 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                   <span className="capitalize">{topic.status}</span>
                 </div>
 
-                {/* Title & Keyword (Condensed View) */}
                 {expandedId !== topic.id && editingId !== topic.id && (
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">
@@ -191,21 +194,17 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                   </div>
                 )}
 
-                {/* Progress Bar (when processing or completed) */}
                 {(topic.status === "processing" || topic.status === "completed") && (
                   <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all ${
-                        topic.status === "completed"
-                          ? "bg-green-500"
-                          : "bg-blue-500"
+                        topic.status === "completed" ? "bg-green-500" : "bg-blue-500"
                       }`}
                       style={{ width: `${Math.max(5, topic.progress)}%` }}
                     />
                   </div>
                 )}
 
-                {/* Action Buttons */}
                 <div className="flex gap-1 shrink-0">
                   {topic.status === "failed" && (
                     <button
@@ -220,18 +219,12 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
 
                   <button
                     onClick={() =>
-                      expandedId === topic.id
-                        ? setExpandedId(null)
-                        : setExpandedId(topic.id)
+                      expandedId === topic.id ? setExpandedId(null) : setExpandedId(topic.id)
                     }
                     className="p-1.5 hover:bg-muted rounded text-muted-foreground"
                     disabled={disabled}
                   >
-                    {expandedId === topic.id ? (
-                      <ChevronUp size={14} />
-                    ) : (
-                      <ChevronDown size={14} />
-                    )}
+                    {expandedId === topic.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
 
                   <button
@@ -244,7 +237,6 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                 </div>
               </div>
 
-              {/* Expanded View */}
               {expandedId === topic.id && (
                 <div className="border-t border-border p-4 space-y-3 bg-muted/30 animate-fade-in">
                   {editingId === topic.id ? (
@@ -256,7 +248,7 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
                           placeholder="e.g., Newborn Circumcision Care"
-                          className="w-full px-3 py-2 rounded border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="input"
                           maxLength={200}
                           autoFocus
                         />
@@ -269,7 +261,7 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                           value={editKeyword}
                           onChange={(e) => setEditKeyword(e.target.value)}
                           placeholder="e.g., newborn circumcision care"
-                          className="w-full px-3 py-2 rounded border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="input"
                           maxLength={100}
                         />
                       </div>
@@ -277,13 +269,13 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                       <div className="flex gap-2">
                         <button
                           onClick={() => saveEdit(topic.id)}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-amber-500 text-white text-sm font-medium hover:bg-amber-600"
+                          className="btn-primary flex-1 justify-center"
                         >
                           <Check size={14} /> Save
                         </button>
                         <button
                           onClick={() => setEditingId(null)}
-                          className="flex-1 px-3 py-2 rounded border border-border text-sm font-medium hover:bg-muted"
+                          className="btn-secondary flex-1 justify-center"
                         >
                           Cancel
                         </button>
@@ -314,11 +306,10 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                     </>
                   )}
 
-                  {/* Source File Section */}
                   {topic.sourceFileName && (
                     <div className="rounded bg-background border border-border p-2">
                       <div className="flex items-center gap-2 text-xs">
-                        <FileText size={13} className="text-amber-600" />
+                        <FileText size={13} className="text-primary" />
                         <span className="flex-1 truncate font-medium">{topic.sourceFileName}</span>
                         <button
                           onClick={() =>
@@ -339,7 +330,6 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                     </div>
                   )}
 
-                  {/* File Upload */}
                   <div
                     onDrop={(e) => {
                       e.preventDefault();
@@ -347,10 +337,9 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                       if (file && !disabled) handleFileForTopic(topic.id, file);
                     }}
                     onDragOver={(e) => e.preventDefault()}
-                    className="border-2 border-dashed border-border rounded-lg p-3 text-center hover:border-amber-400/60 transition-colors cursor-pointer bg-background"
+                    className="border-2 border-dashed border-border rounded-lg p-3 text-center hover:border-primary/50 transition-colors cursor-pointer bg-background"
                     onClick={() => {
-                      fileInputRef.current?.click();
-                      (fileInputRef.current as any)?.dataset?.topicId = topic.id;
+                      if (!disabled) openFilePicker(topic.id);
                     }}
                   >
                     <Upload size={16} className="mx-auto mb-1 text-muted-foreground" />
@@ -360,7 +349,6 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                     </p>
                   </div>
 
-                  {/* Error Display */}
                   {topic.error && (
                     <div className="flex gap-2 p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
                       <AlertCircle size={14} className="shrink-0 mt-0.5" />
@@ -368,7 +356,6 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
                     </div>
                   )}
 
-                  {/* Result Preview */}
                   {topic.result && (
                     <div className="rounded bg-background border border-border p-2 max-h-32 overflow-y-auto">
                       <p className="text-[11px] font-semibold text-muted-foreground mb-1">Result</p>
@@ -389,10 +376,11 @@ export function MultiTopicInput({ topics, onTopicsChange, disabled = false }: Mu
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) {
-            const topicId = (e.target as any)?.dataset?.topicId;
-            if (topicId) handleFileForTopic(topicId, file);
+          const topicId = pendingTopicIdRef.current;
+          if (file && topicId) {
+            handleFileForTopic(topicId, file);
           }
+          pendingTopicIdRef.current = null;
           e.target.value = "";
         }}
         disabled={disabled}
