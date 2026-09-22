@@ -1,125 +1,176 @@
-// Prompt system — loads master prompt from public/soul.md
-// Edit /public/soul.md to change the system prompt (no code changes needed)
+// Prompt system — strict hierarchy: soul.md (medical + identity) > mode rules > format rules
+// Edit /public/soul.md to change the master system prompt (no code changes needed)
 
 export type WritingMode = "contentforge" | "claude-seo";
 export type OutputFormat = "cms-html" | "chirpy" | "clean-md";
 
 let cachedSoul: string | null = null;
 
-// ─── soul.md Integrity Check ──────────────────────────────────────────────────
+const REQUIRED_SECTIONS = ["IDENTITY", "STRUCTURE", "VOICE", "HUMANIZATION", "SEO", "MEDICAL"];
 
-const REQUIRED_SECTIONS = [
-  "IDENTITY",
-  "STRUCTURE",
-  "VOICE",
-  "HUMANIZATION",
-  "SEO",
-  "MEDICAL",
-];
-
-/**
- * Verify fetched soul.md contains all required sections.
- * Returns { valid: boolean, missing: string[] }
- */
 export function validateSoul(content: string): { valid: boolean; missing: string[] } {
   const upper = content.toUpperCase();
-  const missing = REQUIRED_SECTIONS.filter(
-    (section) => !upper.includes(section)
-  );
+  const missing = REQUIRED_SECTIONS.filter((section) => !upper.includes(section));
   return { valid: missing.length === 0, missing };
 }
 
-// ─── Format Instructions ──────────────────────────────────────────────────────
+const HIERARCHY_HEADER = `
+## STRICT PRIORITY HIERARCHY (NEVER VIOLATE)
 
-// Format-specific instruction appended to master prompt
+You MUST obey this order. Higher priority always wins.
+
+1. MEDICAL ACCURACY & SAFETY — never invent stats, studies, quotes, or medical advice. Use only real institutional sources or calibrated caveats. Always include safety disclaimers where relevant.
+2. TOPIC, FACTS, INTENT PRESERVATION — stay strictly on the given topic and source material. Do not introduce unrelated pediatric topics, generic parenting advice, or cross-topic sections.
+3. NO HALLUCINATIONS / NO ARTIFACTS — never invent numbers, years, study names, or quotes. Never output code fences, meta-commentary, internal outlines, or AI self-references.
+4. WRITING MODE rules (ContentForge or Claude SEO) — apply only after the above three are satisfied.
+5. OUTPUT FORMAT rules — apply last. Format must be clean and WordPress-compatible.
+
+If any lower rule conflicts with a higher one, discard the lower rule.
+`;
+
+const PRESERVATION_RULES = `
+## TOPIC & FACT PRESERVATION (NON-NEGOTIABLE)
+
+- The article topic, core facts, medical claims, and original intent MUST be preserved exactly.
+- Do not expand into adjacent topics.
+- Do not invent new statistics, study names, years, or expert quotes.
+- If the source lacks a citation, use a calibrated caveat rather than fabricating one.
+- Remove any visible AI artifacts, code fences, placeholder text, or self-referential language.
+- No duplicate sections. No repeated paragraphs. No filler.
+`;
+
 const FORMAT_INSTRUCTIONS: Record<OutputFormat, string> = {
-  "cms-html":
-    "\n\n## OUTPUT FORMAT: CMS-Ready HTML\n\nOutput clean, semantic HTML using <article>, <section>, <nav>, <header> elements. Use <details>/<summary> for FAQs. All headings get id attributes for TOC anchoring. Use <strong> for key terms on first mention. Use <em> for subtle emphasis only. Do NOT output YAML frontmatter. Do NOT wrap in code fences.",
-  chirpy:
-    "\n\n## OUTPUT FORMAT: Chirpy Jekyll Markdown\n\nOutput standard markdown with YAML frontmatter at the top. The frontmatter must include:\n---\ntitle: \"Article Title\"\ndescription: \"One sentence summary\"\nauthor: [AUTHOR_NAME]\ndate: [CURRENT_DATE]\ncategories: [Parenting]\ntags: [relevant, tags, here]\n---\n\nAfter the frontmatter, write the article in standard markdown. Do NOT use HTML tags — pure markdown only. Do NOT wrap the entire output in code fences.",
-  "clean-md":
-    "\n\n## OUTPUT FORMAT: Clean Markdown\n\nOutput standard markdown without any frontmatter or HTML. Pure content only. Use markdown headings (##, ###), bold (**text**), italic (*text*), lists, and tables. No YAML frontmatter. No HTML tags. Do NOT wrap the entire output in code fences.",
+  "cms-html": `
+## OUTPUT FORMAT: CMS-Ready HTML (WordPress compatible)
+
+Output ONLY clean, semantic HTML. No YAML. No code fences. No markdown.
+
+Required structure:
+<article class="cb-article">
+  <header>
+    <h1>...</h1>
+    <p class="cb-excerpt">...</p>
+    <div class="cb-meta">Published: <time datetime="YYYY-MM-DD">...</time> | Author: ...</div>
+  </header>
+  <nav class="cb-toc" aria-label="Table of Contents">...</nav>
+  <section id="...">...</section>
+  <section id="conclusion">...</section>
+  <section id="faqs"> (only if they add new value)
+    <details><summary>...</summary><p>...</p></details>
+  </section>
+</article>
+
+Rules:
+- All headings get unique id attributes
+- Tables must use <thead> and <tbody>
+- FAQs use <details>/<summary>
+- <strong> only on first mention of key terms
+- No inline styles
+- Meta description (cb-excerpt) 120-160 characters
+- Ready for direct paste into WordPress
+`,
+  chirpy: `
+## OUTPUT FORMAT: Chirpy Jekyll Markdown
+
+Output ONLY standard markdown with YAML frontmatter at the very top. No HTML tags. No code fences.
+
+Frontmatter:
+---
+title: "Exact title"
+description: "One sentence summary (120-160 chars)"
+author: [AUTHOR_NAME]
+date: YYYY-MM-DD HH:MM:SS +0000
+categories: [Parenting]
+tags: [relevant, tags]
+toc: true
+---
+
+Then pure markdown body.
+`,
+  "clean-md": `
+## OUTPUT FORMAT: Clean Markdown
+
+Output ONLY pure markdown. No YAML frontmatter. No HTML tags. No code fences.
+Use ## / ### headings, **bold**, *italic*, tables, lists. Start directly with the H1 title.
+`,
 };
 
-// Mode-specific instruction appended to master prompt
 const MODE_INSTRUCTIONS: Record<WritingMode, string> = {
-  contentforge:
-    "\n\n## WRITING MODE: ContentForge SEO (PRIMARY)\nPrioritize aggressive SEO structure: exact match keyword in first 100 words, semantic variations, LSI keywords, 10 long-tail FAQs, 15+ headings (H1-H4). Maximum keyword density without stuffing.",
-  "claude-seo":
-    "\n\n## WRITING MODE: Claude SEO (PRIMARY)\nPrioritize analytical depth: thesis-driven, evidence hierarchy, counter-arguments, data density (3+ stats with citations), comparison tables, step-by-step guides with WHY.",
+  contentforge: `
+## WRITING MODE: ContentForge SEO
+
+After medical safety and topic preservation:
+- Place exact-match focus keyword in the first 100 words
+- Use semantic variations and LSI keywords naturally
+- Target distinct query variants in H2 headings
+- Prefer high-value FAQs only if they answer new questions
+- Never keyword-stuff
+`,
+  "claude-seo": `
+## WRITING MODE: Claude SEO (analytical depth)
+
+After medical safety and topic preservation:
+- Thesis-driven structure
+- Evidence hierarchy with real citations only
+- Address 1-2 real counter-arguments
+- Prefer comparison tables or step-by-step guides when helpful
+- Never invent statistics
+`,
 };
 
-// ─── Master Prompt Loading ────────────────────────────────────────────────────
-
-/**
- * Fetch the master soul.md prompt (cached after first load)
- * Throws if the prompt fails to load or fails integrity check
- */
 async function getMasterPrompt(): Promise<string> {
   if (cachedSoul) return cachedSoul;
-
   try {
     const res = await fetch("/soul.md");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
     const text = await res.text();
-
-    // Integrity check — verify key sections exist
     const check = validateSoul(text);
     if (!check.valid) {
-      throw new Error(
-        `soul.md is missing required sections: ${check.missing.join(", ")}. ` +
-        "The file may be corrupted or incomplete."
-      );
+      throw new Error(\`soul.md is missing required sections: \${check.missing.join(", \')}. The file may be corrupted.\`);
     }
-
     cachedSoul = text;
     return cachedSoul;
   } catch (err: any) {
     if (err.message?.includes("missing required sections")) throw err;
-    // Network/load failure — use fallback
-    cachedSoul = "You are a pediatric content writer for childbloom.site.";
+    cachedSoul = \`You are a senior pediatric content strategist for childbloom.site.
+Always prioritize medical accuracy, never invent sources, and stay strictly on the given topic.
+Include safety disclaimers. Output only the final article.\`;
     return cachedSoul;
   }
 }
 
-interface PromptOptions {
-  topic?: string;
-  focusKeyword?: string;
-  wordCount?: number;
-  authorName?: string;
-}
-
-/**
- * Build the complete system prompt: master soul.md + format + mode + word count
- */
 export async function buildSystemPrompt(
   mode: WritingMode,
   outputFormat: OutputFormat,
   wordCount: number = 2000,
-  options: PromptOptions = {}
+  _options: { topic?: string; focusKeyword?: string; authorName?: string } = {}
 ): Promise<string> {
   const master = await getMasterPrompt();
-
-  // Remove the placeholder section from soul.md (it has task-specific stuff)
   const base = master.includes("## SOURCE ARTICLE")
     ? master.split("## SOURCE ARTICLE")[0].trim()
-    : master.trim();
+    : master.includes("## TASK INSTRUCTIONS")
+      ? master.split("## TASK INSTRUCTIONS")[0].trim()
+      : master.trim();
 
-  // Build strict word count instruction
-  const wordCountInstruction = `\n\n## STRICT WORD COUNT REQUIREMENT\nThe article MUST be between ${wordCount.toLocaleString()} and ${Math.round(wordCount * 1.1).toLocaleString()} words. Do NOT exceed this range. Write concisely and stay within this limit. Quality over quantity — every sentence must add value.`;
+  const wordCountInstruction = \`
+## WORD COUNT TARGET
+Aim for approximately \${wordCount.toLocaleString()} words (±15%).
+Quality and medical accuracy outrank hitting an exact number.
+Never pad with filler or duplicate content.
+Never truncate mid-sentence.
+\`;
 
   return (
     base +
-    FORMAT_INSTRUCTIONS[outputFormat] +
+    "\n\n" +
+    HIERARCHY_HEADER +
+    PRESERVATION_RULES +
     MODE_INSTRUCTIONS[mode] +
+    FORMAT_INSTRUCTIONS[outputFormat] +
     wordCountInstruction
   );
 }
 
-/**
- * Build user message with topic + keyword + author
- * Includes explicit format reminder so AI can't ignore output format
- */
 export function buildUserPrompt(options: {
   topic: string;
   focusKeyword: string;
@@ -130,72 +181,161 @@ export function buildUserPrompt(options: {
 }): string {
   const { topic, focusKeyword, wordCount, authorName, outputFormat, sourceText } = options;
 
-  // Format reminder appended to user message (belt + suspenders approach)
-  const formatReminder = outputFormat === "cms-html"
-    ? "\n\nREMINDER: Output CMS-Ready HTML only. No YAML frontmatter. No code fences."
-    : outputFormat === "chirpy"
-      ? "\n\nREMINDER: Output Chirpy Jekyll Markdown with YAML frontmatter. No HTML tags. No code fences."
-      : "\n\nREMINDER: Output Clean Markdown only. No YAML frontmatter. No HTML tags. No code fences.";
+  const formatReminder =
+    outputFormat === "cms-html"
+      ? "\n\nFINAL REMINDER: Output CMS-Ready HTML only. No YAML. No code fences. No meta-commentary."
+      : outputFormat === "chirpy"
+        ? "\n\nFINAL REMINDER: Output Chirpy Markdown with YAML frontmatter only. No HTML. No code fences."
+        : "\n\nFINAL REMINDER: Output Clean Markdown only. No YAML. No HTML. No code fences.";
+
+  const commonRules = \`
+STRICT RULES FOR THIS REQUEST:
+- Stay exclusively on the topic: "\${topic}"
+- Focus keyword: "\${focusKeyword}" must appear naturally in the first 100 words
+- Author byline: "\${authorName}"
+- Target ~\${wordCount.toLocaleString()} words
+- Never invent statistics, study names, years, or quotes
+- Never add unrelated sections or topics
+- Never output code fences, outlines, or explanations outside the article
+- Medical safety first. If unsure about a claim, use a calibrated caveat.
+\`;
 
   if (sourceText) {
-    // Rewrite mode
-    return `## SOURCE ARTICLE (REWRITE THIS):
+    return \`## SOURCE ARTICLE TO REWRITE (preserve topic, facts, and medical intent)
 
-Topic: ${topic}
-Focus Keyword: ${focusKeyword}
-Target Word Count: ${wordCount.toLocaleString()} words
-Target Author: ${authorName}
+Topic: \${topic}
+Focus Keyword: \${focusKeyword}
+Target Author: \${authorName}
+Target Length: ~\${wordCount.toLocaleString()} words
 
-${sourceText}
+SOURCE TEXT:
+\${sourceText}
 
 ---
-
-Begin the rewritten article now. Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.${formatReminder}`;
+\${commonRules}
+Rewrite the source from scratch according to the system hierarchy.
+Preserve every factual medical claim and the original intent.
+Expand depth and structure, but do not change the core topic or invent new medical facts.
+Output ONLY the final article.\${formatReminder}\`;
   }
 
-  // Generate from scratch mode
-  return `Write a complete, original article on the following:
+  return \`Write a complete original article on the following topic only.
 
-**Topic:** ${topic}
-**Focus Keyword:** ${focusKeyword}
-**Target Word Count:** Exactly ${wordCount.toLocaleString()} words (do not exceed ${Math.round(wordCount * 1.1).toLocaleString()} words)
-**Author Name:** ${authorName}
+**Topic:** \${topic}
+**Focus Keyword:** \${focusKeyword}
+**Author:** \${authorName}
+**Target Length:** ~\${wordCount.toLocaleString()} words
 
-**Requirements:**
-- The focus keyword "${focusKeyword}" must appear in the first 100 words
-- Include semantic variations of the keyword throughout
-- Write EXACTLY ${wordCount.toLocaleString()} words — no more, no less
-- Be concise and avoid unnecessary filler
-- Use the specified output format (CMS-Ready HTML or Markdown)
-- Author should be listed as "${authorName}" in the byline/frontmatter
-
-Output ONLY the final article — no meta-commentary, no "Here is the article", no internal outline.${formatReminder}`;
+\${commonRules}
+Output ONLY the final article.\${formatReminder}\`;
 }
 
-/**
- * Build continuation prompt for auto-continue when output is cut short
- */
 export function buildContinuePrompt(previousContent: string): string {
-  return `Continue writing the article from where it left off. The previous content ended mid-stream. Continue seamlessly from the last complete sentence.
+  return \`Continue the article seamlessly from where it stopped.
+Do not repeat previous content. Do not add meta-commentary.
+Stay on the same topic and medical safety rules.
 
-PREVIOUS CONTENT (last 500 chars):
-...${previousContent.slice(-500)}
+LAST 400 CHARACTERS:
+...\${previousContent.slice(-400)}
 
-Continue now:`;
+Continue now:\`;
 }
 
-/**
- * Check if the output appears incomplete (no conclusion or FAQs)
- */
 export function isOutputIncomplete(text: string): boolean {
   const lower = text.toLowerCase();
   const hasConclusion =
     lower.includes("conclusion") ||
     lower.includes("## conclusion") ||
-    lower.includes("<h2>conclusion");
+    (lower.includes("<h2") && lower.includes("conclusion"));
   const hasFaqs =
     lower.includes("faq") ||
     lower.includes("frequently asked") ||
     lower.includes("## frequently");
-  return !hasConclusion && !hasFaqs;
+  return text.length > 800 && !hasConclusion && !hasFaqs;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  warnings: string[];
+  cleanedText: string;
+}
+
+export function validateAndCleanOutput(
+  text: string,
+  outputFormat: OutputFormat,
+  topic: string,
+  focusKeyword: string
+): ValidationResult {
+  const warnings: string[] = [];
+  let cleaned = text.trim();
+
+  if (cleaned.startsWith("\`\`\`")) {
+    cleaned = cleaned.replace(/^\`\`\`(?:html|markdown|md|yaml)?\n?/i, "").replace(/\n?\`\`\`$/i, "");
+    warnings.push("Removed surrounding code fences");
+  }
+
+  const metaPatterns = [
+    /^(here is the (rewritten )?article[:\s]*)/i,
+    /^(sure[,!]?\s*)/i,
+    /^(of course[,!]?\s*)/i,
+    /^(i'?ve rewritten[:\s]*)/i,
+    /^(below is the article[:\s]*)/i,
+  ];
+  for (const p of metaPatterns) {
+    if (p.test(cleaned)) {
+      cleaned = cleaned.replace(p, "").trim();
+      warnings.push("Removed meta-commentary prefix");
+    }
+  }
+
+  if (outputFormat === "cms-html") {
+    if (!cleaned.includes("<article") && !cleaned.includes("<h1")) {
+      warnings.push("Output may not be valid CMS HTML (missing <article> or <h1>)");
+    }
+    if (cleaned.startsWith("---")) {
+      const end = cleaned.indexOf("---", 3);
+      if (end > 0) {
+        cleaned = cleaned.slice(end + 3).trim();
+        warnings.push("Removed unexpected YAML frontmatter from HTML output");
+      }
+    }
+  }
+
+  if (outputFormat === "chirpy" && !cleaned.startsWith("---")) {
+    warnings.push("Chirpy output is missing YAML frontmatter");
+  }
+
+  const firstChunk = cleaned.slice(0, 600).toLowerCase();
+  if (focusKeyword && !firstChunk.includes(focusKeyword.toLowerCase().slice(0, 20))) {
+    warnings.push(\`Focus keyword "\${focusKeyword}" may be missing from the opening\`);
+  }
+
+  const topicTokens = topic.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
+  const bodyLower = cleaned.toLowerCase();
+  const matched = topicTokens.filter((t) => bodyLower.includes(t)).length;
+  if (topicTokens.length > 0 && matched / topicTokens.length < 0.4) {
+    warnings.push("Possible topic drift detected — review carefully");
+  }
+
+  const artifactPatterns = [
+    /as an ai language model/i,
+    /i hope this helps/i,
+    /let me know if you (need|want)/i,
+    /\[insert (source|citation|link)\]/i,
+    /\[your (name|credentials)\]/i,
+  ];
+  for (const p of artifactPatterns) {
+    if (p.test(cleaned)) {
+      cleaned = cleaned.replace(p, "");
+      warnings.push("Removed residual AI artifact phrase");
+    }
+  }
+
+  cleaned = cleaned.trim();
+
+  return {
+    ok: warnings.length === 0 || warnings.every((w) => !w.includes("topic drift") && !w.includes("missing")),
+    warnings,
+    cleanedText: cleaned,
+  };
 }
