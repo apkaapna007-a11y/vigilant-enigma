@@ -1,4 +1,5 @@
 // localStorage-based article history management
+// API keys never touch history or URLs
 
 import type { ArticleRecord } from "./types";
 import { STORAGE_KEYS } from "./types";
@@ -16,19 +17,21 @@ export function getHistory(): ArticleRecord[] {
 }
 
 export function saveToHistory(record: ArticleRecord): void {
-  const history = getHistory();
-  // Remove any existing record with same id
-  const filtered = history.filter(h => h.id !== record.id);
-  // Add new record to front
-  filtered.unshift(record);
-  // Trim to max items
-  const trimmed = filtered.slice(0, MAX_HISTORY_ITEMS);
-  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(trimmed));
+  try {
+    const history = getHistory();
+    const filtered = history.filter((h) => h.id !== record.id);
+    filtered.unshift(record);
+    const trimmed = filtered.slice(0, MAX_HISTORY_ITEMS);
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(trimmed));
+  } catch (err) {
+    // Quota exceeded or private mode — fail silently
+    console.warn("History save failed (storage full or blocked)");
+  }
 }
 
 export function deleteFromHistory(id: string): void {
   const history = getHistory();
-  const filtered = history.filter(h => h.id !== id);
+  const filtered = history.filter((h) => h.id !== id);
   localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(filtered));
 }
 
@@ -37,8 +40,7 @@ export function clearHistory(): void {
 }
 
 export function getHistoryItem(id: string): ArticleRecord | undefined {
-  const history = getHistory();
-  return history.find(h => h.id === id);
+  return getHistory().find((h) => h.id === id);
 }
 
 export function getSettings() {
@@ -52,6 +54,7 @@ export function getSettings() {
 }
 
 export function saveSettings(settings: any): void {
+  // Never log or expose the key
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
 }
 
@@ -60,7 +63,7 @@ export function generateId(): string {
 }
 
 export function countWords(text: string): number {
-  return text.split(/\s+/).filter(w => w.length > 0).length;
+  return text.split(/\s+/).filter((w) => w.length > 0).length;
 }
 
 export function formatFileSize(bytes: number): string {
