@@ -4,31 +4,27 @@ AI-powered article rewriter for [childbloom.site](https://childbloom.site). Tran
 
 ## Features
 
-- **Three-layer prompt system:** ChildBloom persona + ContentForge SEO / Claude SEO + output format rules
-- **Streaming output:** Watch the article being written in real-time
-- **Multiple file formats:** Upload .txt, .md, .docx, .pdf, .html
-- **Three output formats:** CMS-Ready HTML, Chirpy Jekyll Markdown, Clean Markdown
-- **Article history:** Previous rewrites saved to localStorage
-- **Client-side only:** API key stays in your browser — nothing sent to any server
+- **Strict prompt hierarchy:** Medical safety → Topic/facts preservation → No hallucinations → Mode rules → Output format
+- **Three-layer prompt system:** ChildBloom persona (soul.md) + ContentForge SEO / Claude SEO + output format rules
+- **Strong post-generation validation:** Strips code fences, meta-commentary, AI artifacts; soft topic-drift checks
+- **Streaming output** with live word count, progress, Preview / Raw toggle (HTML or Markdown)
+- **File upload:** .txt, .md, .docx, .pdf, .html with drag-and-drop
+- **Three output formats:** CMS-Ready HTML (WordPress-compatible), Chirpy Jekyll Markdown, Clean Markdown
+- **Article history:** LocalStorage, searchable, HTML preview for CMS format
+- **Client-side only:** API key stays in your browser — never logged or sent to any server
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 npm install
-
-# Run locally
 npm run dev
-
-# Build for production
-npm run build
 ```
 
-Then open http://localhost:3000.
+Open http://localhost:3000.
 
 ## Deployment
 
-Deploy to Vercel with one click:
+Deploy to Vercel:
 
 1. Push to GitHub
 2. Import on https://vercel.com
@@ -36,27 +32,26 @@ Deploy to Vercel with one click:
 
 ## Configuration
 
-On first use, go to the **Settings** tab and enter:
+On first use, open **Settings** and enter:
 
 | Field | Description |
 |-------|-------------|
 | API Key | Your OpenAI-compatible API key |
-| Base URL | API endpoint (e.g., `https://models.github.ai/inference`) |
-| Model Name | Model to use (e.g., `gpt-4.1`, `claude-sonnet-4-20250514`) |
-| Temperature | 0–2 (controls randomness) |
-| Max Tokens | Token limit for response |
+| Base URL | API endpoint (e.g. `https://openrouter.ai/api/v1`) |
+| Model Name | Model to use |
+| Temperature | 0–2 |
+| Max Tokens | Token limit |
 
 ## Compatible APIs
 
-- OpenAI API
-- GitHub Inference
-- Anthropic (via OpenAI-compatible endpoints)
-- OpenRouter
-- Any OpenAI-compatible endpoint
+- OpenRouter (recommended for browser CORS)
+- OpenAI
+- Together AI
+- Any OpenAI-compatible endpoint (proxy available in Settings)
 
 ## Tech Stack
 
-Next.js 14 • TypeScript • Tailwind CSS • shadcn/ui • OpenAI JS SDK
+Next.js 14 · TypeScript · Tailwind CSS · shadcn/ui · OpenAI JS SDK · mammoth · pdfjs-dist
 
 ## License
 
