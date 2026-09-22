@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { UploadTab } from "@/components/upload-tab";
 import { HistoryTab } from "@/components/history-tab";
 import { SettingsTab } from "@/components/settings-tab";
-import { Baby, Upload, Clock, Settings, Sparkles, Download, Wifi } from "lucide-react";
+import { FileText, History, Settings, Download, Shield } from "lucide-react";
 
 export default function Home() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -15,7 +15,9 @@ export default function Home() {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => undefined);
     }
-    const standalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as Navigator & { standalone?: boolean }).standalone;
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone;
     setIsInstalled(Boolean(standalone));
     const handleInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -33,69 +35,107 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col app-shell">
-      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-xl safe-top">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-background flex flex-col">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-md safe-top">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="relative shrink-0">
-              <div className="size-11 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
-                <Baby className="text-primary-foreground" size={22} aria-hidden="true" />
-              </div>
-              <span className="absolute -right-1 -top-1 size-3.5 rounded-full border-2 border-background bg-emerald-500" aria-label="Ready" />
+            <div className="size-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+              <FileText className="text-primary-foreground" size={16} aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base sm:text-lg font-bold tracking-tight">ChildBloom Rewriter</h1>
-              <p className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
-                <Sparkles size={11} className="text-primary" aria-hidden="true" />
-                A calmer way to create trusted pediatric content
+              <h1 className="text-sm font-semibold tracking-tight truncate">ChildBloom Studio</h1>
+              <p className="text-[11px] text-muted-foreground hidden sm:block leading-none">
+                Pediatric content production
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground rounded-full border border-border/70 bg-card/70 px-3 py-1.5">
-              <Wifi size={12} className="text-emerald-600" aria-hidden="true" />
-              Ready to work offline
+            <div className="hidden md:flex items-center gap-1.5 text-[11px] text-muted-foreground rounded-md border border-border px-2.5 py-1">
+              <Shield size={12} className="text-primary" aria-hidden="true" />
+              Client-side · keys stay local
             </div>
             {installPrompt && !isInstalled && (
-              <button onClick={installApp} className="btn-secondary text-xs sm:text-sm" aria-label="Install ChildBloom app">
-                <Download size={14} aria-hidden="true" />
-                <span className="hidden sm:inline">Install app</span>
+              <button
+                onClick={installApp}
+                className="inline-flex items-center gap-1.5 text-xs font-medium rounded-md border border-border bg-card px-2.5 py-1.5 hover:bg-muted transition-colors"
+              >
+                <Download size={13} aria-hidden="true" />
+                <span className="hidden sm:inline">Install</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <div className="mb-7 max-w-3xl">
-          <p className="eyebrow">Content studio / Private by design</p>
-          <h2 className="mt-2 text-3xl sm:text-4xl font-semibold tracking-tight text-balance">Turn a topic into something parents can trust.</h2>
-          <p className="mt-3 text-sm sm:text-base leading-7 text-muted-foreground max-w-2xl">Shape evidence-based pediatric content with a focused workflow that stays close at hand, even when you&apos;re offline.</p>
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="mb-6 sm:mb-8">
+          <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">Content workspace</h2>
+          <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+            Rewrite or generate E-E-A-T pediatric articles. Output is CMS-ready HTML, Chirpy Markdown, or clean Markdown.
+          </p>
         </div>
 
         <Tabs defaultTab="upload">
-          <div className="mb-6 overflow-x-auto pb-1">
-            <TabsList className="w-full sm:w-auto bg-card/70 border border-border/70 p-1 shadow-sm">
-              <TabsTrigger value="upload" className="gap-2 flex-1 sm:flex-none"><Upload size={15} aria-hidden="true" /><span>Rewrite</span></TabsTrigger>
-              <TabsTrigger value="history" className="gap-2 flex-1 sm:flex-none"><Clock size={15} aria-hidden="true" /><span>History</span></TabsTrigger>
-              <TabsTrigger value="settings" className="gap-2 flex-1 sm:flex-none"><Settings size={15} aria-hidden="true" /><span>Settings</span></TabsTrigger>
+          <div className="mb-6 border-b border-border">
+            <TabsList className="w-full sm:w-auto bg-transparent p-0 h-auto gap-0 rounded-none border-0">
+              <TabsTrigger
+                value="upload"
+                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
+              >
+                <FileText size={15} aria-hidden="true" />
+                <span>Rewrite</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="history"
+                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
+              >
+                <History size={15} aria-hidden="true" />
+                <span>History</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="settings"
+                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
+              >
+                <Settings size={15} aria-hidden="true" />
+                <span>Settings</span>
+              </TabsTrigger>
             </TabsList>
           </div>
-          <TabsContent value="upload"><UploadTab /></TabsContent>
-          <TabsContent value="history"><HistoryTab /></TabsContent>
-          <TabsContent value="settings"><SettingsTab /></TabsContent>
+
+          <TabsContent value="upload">
+            <UploadTab />
+          </TabsContent>
+          <TabsContent value="history">
+            <HistoryTab />
+          </TabsContent>
+          <TabsContent value="settings">
+            <SettingsTab />
+          </TabsContent>
         </Tabs>
       </main>
 
-      <footer className="border-t border-border/70 py-5 safe-bottom">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-          <p>Private in your browser. Built for <a href="https://childbloom.site" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">childbloom.site</a>.</p>
-          <p>ChildBloom Rewriter <span aria-hidden="true">•</span> v1.1</p>
+      <footer className="border-t border-border py-4 safe-bottom">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <p>
+            Private browser workspace for{" "}
+            <a
+              href="https://childbloom.site"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              childbloom.site
+            </a>
+          </p>
+          <p>ChildBloom Studio · v1.2</p>
         </div>
       </footer>
     </div>
   );
 }
 
-type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
-
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
