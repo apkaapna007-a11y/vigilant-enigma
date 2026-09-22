@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback } from "react";
 import { ModeSelector } from "./mode-selector";
 import { StreamingOutput } from "./streaming-output";
+import { MultiTopicInput } from "./multi-topic-input";
+import { MultiTopicProcessor } from "./multi-topic-processor";
 import {
   buildSystemPrompt,
   buildUserPrompt,
@@ -13,20 +15,24 @@ import {
   type OutputFormat,
 } from "@/lib/prompts";
 import { OpenAIClient } from "@/lib/openai-client";
-import { Settings, RewriteProgress } from "@/lib/types";
+import { Settings, RewriteProgress, Topic, TopicStatus } from "@/lib/types";
 import { getSettings, saveToHistory, generateId, countWords } from "@/lib/history";
 import { parseFile, validateFile } from "@/lib/file-parser";
 import {
   Zap, AlertCircle, Copy, Download, RotateCcw, Sparkles,
   FileText, Hash, User, PenTool, Target, RefreshCw,
-  Upload, X, CheckCircle2, AlertTriangle
+  Upload, X, CheckCircle2, AlertTriangle, Layers
 } from "lucide-react";
 
 const WORD_COUNTS = [1500, 2000, 2500, 3000, 4000];
-
 type GenerationMode = "generate" | "rewrite";
+type WorkflowMode = "single" | "multi";
 
 export function UploadTab() {
+  // Workflow mode toggle
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("single");
+
+  // Single-topic state (existing)
   const [topic, setTopic] = useState("");
   const [focusKeyword, setFocusKeyword] = useState("");
   const [wordCount, setWordCount] = useState(2000);
@@ -47,6 +53,9 @@ export function UploadTab() {
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Multi-topic state
+  const [topics, setTopics] = useState<Topic[]>([]);
 
   const isProcessing = ["parsing", "rewriting", "streaming"].includes(progress.status);
   const isComplete = progress.status === "complete";
@@ -94,6 +103,7 @@ export function UploadTab() {
     e.target.value = "";
   }
 
+  // Single-topic generation
   async function generateArticle() {
     const settings = getSettings() as Settings | null;
     if (!settings?.apiKey) {
@@ -228,75 +238,38 @@ export function UploadTab() {
     setError(null);
   }
 
-  async function copyToClipboard() {
-    try {
-      await navigator.clipboard.writeText(progress.currentText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Clipboard write failed");
-    }
+  function copyToClipboard() {
+    navigator.clipboard.writeText(progress.currentText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   function downloadFile() {
     const ext = outputFormat === "cms-html" ? "html" : "md";
-    const mimeType = outputFormat === "cms-html" ? "text/html;charset=utf-8" : "text/markdown;charset=utf-8";
-    const blob = new Blob([progress.currentText], { type: mimeType });
+    const mime = outputFormat === "cms-html" ? "text/html;charset=utf-8" : "text/markdown;charset=utf-8";
+    const blob = new Blob([progress.currentText], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase().slice(0, 60) || "article"}.${ext}`;
+    a.download = `rewritten_${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase().slice(0, 60)}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
   function resetForm() {
+    setTopic("");
+    setFocusKeyword("");
+    setSourceText("");
+    setFileName(null);
+    setGenMode("generate");
     setProgress({ status: "idle", progress: 0, currentText: "" });
     setError(null);
     setWarnings([]);
-    setSourceText("");
-    setFileName(null);
   }
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-5 animate-fade-in">
-      <div className="space-y-2">
-        <label className="text-sm font-semibold flex items-center gap-2">
-          <RefreshCw size={14} className="text-amber-500" />
-          Generation Mode
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setGenMode("generate")}
-            disabled={isProcessing}
-            className={`px-4 py-3 rounded-lg text-sm transition-all ${
-              genMode === "generate"
-                ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
-                : "bg-muted text-foreground hover:bg-muted/80 border border-border"
-            }`}
-          >
-            <span className="block font-semibold">Generate from Scratch</span>
-            <span className={`text-xs ${genMode === "generate" ? "text-amber-100" : "text-muted-foreground"}`}>
-              New article from topic + keyword
-            </span>
-          </button>
-          <button
-            onClick={() => setGenMode("rewrite")}
-            disabled={isProcessing}
-            className={`px-4 py-3 rounded-lg text-sm transition-all ${
-              genMode === "rewrite"
-                ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
-                : "bg-muted text-foreground hover:bg-muted/80 border border-border"
-            }`}
-          >
-            <span className="block font-semibold">Rewrite Existing</span>
-            <span className={`text-xs ${genMode === "rewrite" ? "text-amber-100" : "text-muted-foreground"}`}>
-              Paste or upload source article
-            </span>
-          </button>
-        </div>
-      </div>
-
+  // Render single-topic workflow
+  const singleTopicView = (
+    <div className="max-w-3xl mx-auto space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
           <PenTool size={14} className="text-amber-500" />
@@ -527,6 +500,139 @@ export function UploadTab() {
           </button>
         </div>
       )}
+    </div>
+  );
+
+  // Render multi-topic workflow
+  const multiTopicView = (
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Global Settings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <User size={14} className="text-amber-500" />
+            Author Name
+          </label>
+          <input
+            type="text"
+            value={authorName}
+            onChange={(e) => setAuthorName(e.target.value)}
+            placeholder="ChildBloom Editorial"
+            className="input"
+            maxLength={80}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold flex items-center gap-2">
+            <Hash size={14} className="text-amber-500" />
+            Target Word Count: {wordCount.toLocaleString()}
+          </label>
+          <div className="flex gap-2">
+            {WORD_COUNTS.map((wc) => (
+              <button
+                key={wc}
+                onClick={() => setWordCount(wc)}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  wordCount === wc
+                    ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
+                    : "bg-muted text-foreground hover:bg-muted/80 border border-border"
+                }`}
+              >
+                {wc >= 1000 ? `${wc / 1000}K` : wc}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <ModeSelector value={mode} onChange={setMode} />
+
+      <div className="space-y-2">
+        <label className="text-sm font-semibold flex items-center gap-2">
+          <Sparkles size={14} className="text-amber-500" />
+          Output Format
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              { id: "cms-html" as const, label: "CMS-Ready HTML", desc: "WordPress-ready" },
+              { id: "chirpy" as const, label: "Chirpy Jekyll", desc: "GitHub Pages" },
+              { id: "clean-md" as const, label: "Clean Markdown", desc: "Universal" },
+            ] as const
+          ).map((fmt) => (
+            <button
+              key={fmt.id}
+              onClick={() => setOutputFormat(fmt.id)}
+              className={`px-3 py-3 rounded-lg text-sm transition-all ${
+                outputFormat === fmt.id
+                  ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
+                  : "bg-muted text-foreground hover:bg-muted/80 border border-border"
+              }`}
+            >
+              <span className="block font-semibold text-xs sm:text-sm">{fmt.label}</span>
+              <span
+                className={`text-[11px] ${
+                  outputFormat === fmt.id ? "text-amber-100" : "text-muted-foreground"
+                }`}
+              >
+                {fmt.desc}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Multi-Topic Input */}
+      <MultiTopicInput topics={topics} onTopicsChange={setTopics} />
+
+      {/* Multi-Topic Processor */}
+      {topics.length > 0 && (
+        <MultiTopicProcessor
+          topics={topics}
+          onTopicsUpdate={setTopics}
+          mode={mode}
+          outputFormat={outputFormat}
+          wordCount={wordCount}
+          authorName={authorName}
+          genMode={genMode}
+        />
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Workflow Mode Toggle */}
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-card/60 p-1">
+          <button
+            onClick={() => setWorkflowMode("single")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              workflowMode === "single"
+                ? "bg-amber-500 text-white shadow-md"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <FileText size={14} />
+            Single Article
+          </button>
+          <button
+            onClick={() => setWorkflowMode("multi")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              workflowMode === "multi"
+                ? "bg-amber-500 text-white shadow-md"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Layers size={14} />
+            Batch Process
+          </button>
+        </div>
+      </div>
+
+      {/* Content based on workflow mode */}
+      {workflowMode === "single" ? singleTopicView : multiTopicView}
     </div>
   );
 }

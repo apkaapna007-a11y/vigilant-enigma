@@ -26,6 +26,38 @@ export interface RewriteProgress {
   error?: string;
 }
 
+// Multi-topic types
+export type TopicStatus = "pending" | "processing" | "completed" | "failed";
+export type WritingMode = "contentforge" | "claude-seo";
+export type OutputFormat = "cms-html" | "chirpy" | "clean-md";
+
+export interface Topic {
+  id: string;
+  title: string;
+  focusKeyword: string;
+  status: TopicStatus;
+  progress: number;
+  sourceFileName?: string;
+  sourceText?: string;
+  result?: string;
+  error?: string;
+  wordCount?: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface BatchJob {
+  id: string;
+  topics: Topic[];
+  mode: WritingMode;
+  outputFormat: OutputFormat;
+  wordCount: number;
+  authorName: string;
+  genMode: "generate" | "rewrite";
+  createdAt: string;
+  completedAt?: string;
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   baseUrl: "https://openrouter.ai/api/v1",
@@ -41,4 +73,5 @@ export const STORAGE_KEYS = {
   HISTORY: "cb_history",
   LAST_MODE: "cb_last_mode",
   LAST_FORMAT: "cb_last_format",
+  BATCH_JOBS: "cb_batch_jobs",
 } as const;
