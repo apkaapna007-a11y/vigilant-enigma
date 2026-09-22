@@ -5,27 +5,24 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { UploadTab } from "@/components/upload-tab";
 import { HistoryTab } from "@/components/history-tab";
 import { SettingsTab } from "@/components/settings-tab";
-import { FileText, History, Settings, Download, Shield } from "lucide-react";
+import { Activity, Download, FileText, History, Layers3, LockKeyhole, Settings, Sparkles } from "lucide-react";
 
 export default function Home() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    }
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as Navigator & { standalone?: boolean }).standalone;
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as Navigator & { standalone?: boolean }).standalone;
     setIsInstalled(Boolean(standalone));
-    const handleInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
+    const handleInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
+    const handleInstalled = () => setIsInstalled(true);
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
-    window.addEventListener("appinstalled", () => setIsInstalled(true));
-    return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
   }, []);
 
   async function installApp() {
@@ -35,107 +32,60 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-md safe-top">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-background flex flex-col selection:bg-primary/20">
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-card/85 backdrop-blur-xl safe-top">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-[4.25rem] flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="size-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <FileText className="text-primary-foreground" size={16} aria-hidden="true" />
+            <div className="relative size-10 rounded-xl bg-gradient-to-br from-primary via-primary to-teal-700 flex items-center justify-center shrink-0 shadow-lg shadow-primary/20">
+              <FileText className="text-primary-foreground" size={18} aria-hidden="true" />
+              <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-amber-400 ring-2 ring-card" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold tracking-tight truncate">ChildBloom Studio</h1>
-              <p className="text-[11px] text-muted-foreground hidden sm:block leading-none">
-                Pediatric content production
-              </p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[15px] font-bold tracking-tight truncate">ChildBloom Studio</h1>
+                <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"><Sparkles size={10} /> Pro workspace</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">Pediatric content production</p>
             </div>
           </div>
-
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden md:flex items-center gap-1.5 text-[11px] text-muted-foreground rounded-md border border-border px-2.5 py-1">
-              <Shield size={12} className="text-primary" aria-hidden="true" />
-              Client-side · keys stay local
-            </div>
-            {installPrompt && !isInstalled && (
-              <button
-                onClick={installApp}
-                className="inline-flex items-center gap-1.5 text-xs font-medium rounded-md border border-border bg-card px-2.5 py-1.5 hover:bg-muted transition-colors"
-              >
-                <Download size={13} aria-hidden="true" />
-                <span className="hidden sm:inline">Install</span>
-              </button>
-            )}
+            <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-muted-foreground rounded-full border border-border/80 bg-background/60 px-3 py-1.5"><LockKeyhole size={12} className="text-primary" /> Private by design</div>
+            <div className="hidden md:flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-200/80 dark:border-emerald-900/80 bg-emerald-50/70 dark:bg-emerald-950/30 px-3 py-1.5"><Activity size={12} /> All systems ready</div>
+            {installPrompt && !isInstalled && <button type="button" onClick={installApp} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg border border-border bg-card px-3 py-2 hover:bg-muted transition-colors"><Download size={13} /><span className="hidden sm:inline">Install app</span></button>}
           </div>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="mb-6 sm:mb-8">
-          <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">Content workspace</h2>
-          <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Rewrite or generate E-E-A-T pediatric articles. Output is CMS-ready HTML, Chirpy Markdown, or clean Markdown.
-          </p>
-        </div>
+      <main className="relative flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-7 sm:py-10">
+        <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 overflow-hidden opacity-70"><div className="absolute -left-20 -top-28 size-80 rounded-full bg-primary/10 blur-3xl" /><div className="absolute right-0 top-0 size-72 rounded-full bg-amber-400/10 blur-3xl" /></div>
+        <section className="mb-7 sm:mb-9 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+          <div>
+            <p className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-primary"><span className="size-1.5 rounded-full bg-primary" /> Content operations</p>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-[-0.03em] text-foreground">Your content command center.</h2>
+            <p className="mt-3 text-sm sm:text-[15px] leading-6 text-muted-foreground max-w-2xl">Transform pediatric source material into polished, E-E-A-T aligned articles with a focused single rewrite or a high-throughput multi-topic queue.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:min-w-[330px]">
+            <div className="rounded-xl border border-border/80 bg-card/75 px-3 py-3 shadow-sm"><Layers3 size={15} className="mb-2 text-primary" /><p className="text-sm font-bold">Batch ready</p><p className="text-[11px] text-muted-foreground">Multi-topic queue</p></div>
+            <div className="rounded-xl border border-border/80 bg-card/75 px-3 py-3 shadow-sm"><FileText size={15} className="mb-2 text-amber-600" /><p className="text-sm font-bold">3 formats</p><p className="text-[11px] text-muted-foreground">CMS · Jekyll · MD</p></div>
+            <div className="rounded-xl border border-border/80 bg-card/75 px-3 py-3 shadow-sm"><LockKeyhole size={15} className="mb-2 text-emerald-600" /><p className="text-sm font-bold">Local-first</p><p className="text-[11px] text-muted-foreground">Keys stay local</p></div>
+          </div>
+        </section>
 
         <Tabs defaultTab="upload">
-          <div className="mb-6 border-b border-border">
-            <TabsList className="w-full sm:w-auto bg-transparent p-0 h-auto gap-0 rounded-none border-0">
-              <TabsTrigger
-                value="upload"
-                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
-              >
-                <FileText size={15} aria-hidden="true" />
-                <span>Rewrite</span>
-              </TabsTrigger>
-              <TabsTrigger
-                value="history"
-                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
-              >
-                <History size={15} aria-hidden="true" />
-                <span>History</span>
-              </TabsTrigger>
-              <TabsTrigger
-                value="settings"
-                className="gap-2 rounded-none border-b-2 border-transparent px-4 py-2.5 text-sm"
-              >
-                <Settings size={15} aria-hidden="true" />
-                <span>Settings</span>
-              </TabsTrigger>
+          <div className="rounded-2xl border border-border/80 bg-card/70 shadow-[0_18px_50px_-30px_hsl(222_25%_12%_/_0.35)] overflow-hidden">
+            <TabsList className="w-full justify-start gap-1 border-b border-border/70 bg-muted/30 p-2 h-auto rounded-none">
+              <TabsTrigger value="upload" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm"><FileText size={15} /><span>Rewrite workspace</span></TabsTrigger>
+              <TabsTrigger value="history" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm"><History size={15} /><span>History</span></TabsTrigger>
+              <TabsTrigger value="settings" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm"><Settings size={15} /><span>Settings</span></TabsTrigger>
             </TabsList>
+            <div className="p-4 sm:p-6 lg:p-8"><TabsContent value="upload" className="mt-0"><UploadTab /></TabsContent><TabsContent value="history" className="mt-0"><HistoryTab /></TabsContent><TabsContent value="settings" className="mt-0"><SettingsTab /></TabsContent></div>
           </div>
-
-          <TabsContent value="upload">
-            <UploadTab />
-          </TabsContent>
-          <TabsContent value="history">
-            <HistoryTab />
-          </TabsContent>
-          <TabsContent value="settings">
-            <SettingsTab />
-          </TabsContent>
         </Tabs>
       </main>
 
-      <footer className="border-t border-border py-4 safe-bottom">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <p>
-            Private browser workspace for{" "}
-            <a
-              href="https://childbloom.site"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
-            >
-              childbloom.site
-            </a>
-          </p>
-          <p>ChildBloom Studio · v1.2</p>
-        </div>
-      </footer>
+      <footer className="border-t border-border/70 bg-card/40 py-4 safe-bottom"><div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>Private browser workspace for <a href="https://childbloom.site" target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">childbloom.site</a></p><p>ChildBloom Studio · v1.3 · Built for thoughtful publishing</p></div></footer>
     </div>
   );
 }
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
