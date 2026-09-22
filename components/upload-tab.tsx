@@ -1,15 +1,25 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { ModeSelector } from "./mode-selector";
 import { StreamingOutput } from "./streaming-output";
-import { buildSystemPrompt, buildUserPrompt, type WritingMode, type OutputFormat } from "@/lib/prompts";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  buildContinuePrompt,
+  isOutputIncomplete,
+  validateAndCleanOutput,
+  type WritingMode,
+  type OutputFormat,
+} from "@/lib/prompts";
 import { OpenAIClient } from "@/lib/openai-client";
 import { Settings, RewriteProgress } from "@/lib/types";
 import { getSettings, saveToHistory, generateId, countWords } from "@/lib/history";
+import { parseFile, validateFile } from "@/lib/file-parser";
 import {
   Zap, AlertCircle, Copy, Download, RotateCcw, Sparkles,
-  FileText, Hash, User, PenTool, Target, Loader2, RefreshCw
+  FileText, Hash, User, PenTool, Target, RefreshCw,
+  Upload, X, CheckCircle2, AlertTriangle
 } from "lucide-react";
 
 const WORD_COUNTS = [1500, 2000, 2500, 3000, 4000];
@@ -17,7 +27,6 @@ const WORD_COUNTS = [1500, 2000, 2500, 3000, 4000];
 type GenerationMode = "generate" | "rewrite";
 
 export function UploadTab() {
-  // Form state
   const [topic, setTopic] = useState("");
   const [focusKeyword, setFocusKeyword] = useState("");
   const [wordCount, setWordCount] = useState(2000);
@@ -26,51 +35,63 @@ export function UploadTab() {
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("cms-html");
   const [genMode, setGenMode] = useState<GenerationMode>("generate");
   const [sourceText, setSourceText] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
 
-  // UI state
   const [progress, setProgress] = useState<RewriteProgress>({
     status: "idle",
     progress: 0,
     currentText: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isProcessing = ["parsing", "rewriting", "streaming"].includes(progress.status);
   const isComplete = progress.status === "complete";
-  const canGenerate = topic.trim().length > 0 && focusKeyword.trim().length > 0
-    && (genMode === "generate" || sourceText.trim().length > 0);
+  const canGenerate =
+    topic.trim().length > 0 &&
+    focusKeyword.trim().length > 0 &&
+    (genMode === "generate" || sourceText.trim().length > 50);
 
-  /**
-   * Truncate text to target word count, cutting at the last complete section
-   * (heading or paragraph break) before the limit.
-   */
-  function truncateToWordCount(text: string, target: number): string {
-    const maxWords = Math.round(target * 1.1); // Allow 10% over
-    const words = text.split(/\s+/);
-    if (words.length <= maxWords) return text;
-
-    // Find a good cut point — last heading or double newline before limit
-    const cutPoint = maxWords;
-    const beforeCut = words.slice(0, cutPoint).join(" ");
-
-    // Try to cut at last heading
-    const lastHeading = beforeCut.lastIndexOf("\n## ");
-    const lastParaBreak = beforeCut.lastIndexOf("\n\n");
-
-    // Use the later of the two cut points (closer to target)
-    const cutAt = Math.max(lastHeading, lastParaBreak);
-    if (cutAt > target * 0.5) {
-      return beforeCut.slice(0, cutAt).trim() + "\n\n[Article truncated to target word count]";
+  const handleFile = useCallback(async (file: File) => {
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
     }
-
-    // Fallback: cut at last sentence before limit
-    const lastSentence = beforeCut.lastIndexOf(". ");
-    if (lastSentence > target * 0.5) {
-      return beforeCut.slice(0, lastSentence + 1).trim() + "\n\n[Article truncated to target word count]";
+    setError(null);
+    setProgress({ status: "parsing", progress: 5, currentText: "" });
+    try {
+      const parsed = await parseFile(file);
+      setSourceText(parsed.text);
+      setFileName(parsed.fileName);
+      setGenMode("rewrite");
+      if (!topic.trim()) {
+        const suggested = parsed.fileName
+          .replace(/\.[^.]+$/, "")
+          .replace(/[-_]/g, " ")
+          .trim();
+        if (suggested) setTopic(suggested);
+      }
+      setProgress({ status: "idle", progress: 0, currentText: "" });
+    } catch (err: any) {
+      setError(err.message || "Failed to parse file");
+      setProgress({ status: "error", progress: 0, currentText: "", error: err.message });
     }
+  }, [topic]);
 
-    return beforeCut.trim() + "\n\n[Article truncated to target word count]";
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = "";
   }
 
   async function generateArticle() {
@@ -81,32 +102,31 @@ export function UploadTab() {
     }
 
     if (!canGenerate) {
-      setError(genMode === "rewrite"
-        ? "Please enter a topic, focus keyword, and source article text."
-        : "Please enter a topic and focus keyword.");
+      setError(
+        genMode === "rewrite"
+          ? "Please enter a topic, focus keyword, and source article text (or upload a file)."
+          : "Please enter a topic and focus keyword."
+      );
       return;
     }
 
     setError(null);
+    setWarnings([]);
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      // Build prompts (loads soul.md + format + mode)
       const systemPrompt = await buildSystemPrompt(mode, outputFormat, wordCount);
-
-      // Build user prompt with topic + keyword + author + format
       const userPrompt = buildUserPrompt({
-        topic,
-        focusKeyword,
+        topic: topic.trim(),
+        focusKeyword: focusKeyword.trim(),
         wordCount,
-        authorName,
+        authorName: authorName.trim() || "ChildBloom Editorial",
         outputFormat,
         sourceText: genMode === "rewrite" ? sourceText : undefined,
       });
 
-      // Call API
-      setProgress({ status: "rewriting", progress: 10, currentText: "" });
+      setProgress({ status: "rewriting", progress: 8, currentText: "" });
       const client = new OpenAIClient(settings);
 
       let fullText = "";
@@ -117,7 +137,7 @@ export function UploadTab() {
           onToken: (token) => {
             fullText += token;
             const currentWords = countWords(fullText);
-            const estimatedProgress = Math.min(95, 10 + (currentWords / wordCount) * 85);
+            const estimatedProgress = Math.min(92, 8 + (currentWords / wordCount) * 84);
             setProgress({
               status: "streaming",
               progress: estimatedProgress,
@@ -126,7 +146,6 @@ export function UploadTab() {
           },
           onComplete: (text) => {
             fullText = text;
-            setProgress({ status: "complete", progress: 100, currentText: text });
           },
           onError: (err) => {
             setError(err.message);
@@ -139,18 +158,55 @@ export function UploadTab() {
         controller.signal
       );
 
-      // Fix C: Truncate if output exceeds target by >15%
-      const finalText = truncateToWordCount(fullText, wordCount);
-      if (finalText !== fullText) {
-        setProgress({ status: "complete", progress: 100, currentText: finalText });
+      if (isOutputIncomplete(fullText) && !controller.signal.aborted) {
+        setProgress({ status: "streaming", progress: 93, currentText: fullText });
+        const continuePrompt = buildContinuePrompt(fullText);
+        let continued = "";
+        try {
+          await client.streamRewrite(
+            systemPrompt,
+            continuePrompt,
+            {
+              onToken: (token) => {
+                continued += token;
+                setProgress({
+                  status: "streaming",
+                  progress: 95,
+                  currentText: fullText + continued,
+                });
+              },
+              onComplete: (text) => {
+                continued = text;
+              },
+              onError: () => {},
+            },
+            controller.signal
+          );
+          fullText = fullText + continued;
+        } catch {
+          // keep partial
+        }
       }
 
-      // Save to history
+      const validation = validateAndCleanOutput(
+        fullText,
+        outputFormat,
+        topic.trim(),
+        focusKeyword.trim()
+      );
+      const finalText = validation.cleanedText;
+      setWarnings(validation.warnings);
+
+      setProgress({ status: "complete", progress: 100, currentText: finalText });
+
       if (finalText) {
         saveToHistory({
           id: generateId(),
-          fileName: `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}.${outputFormat === "cms-html" ? "html" : "md"}`,
-          originalText: genMode === "rewrite" ? sourceText.slice(0, 500) : `Topic: ${topic}\nKeyword: ${focusKeyword}`,
+          fileName: `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase().slice(0, 60)}.${outputFormat === "cms-html" ? "html" : "md"}`,
+          originalText:
+            genMode === "rewrite"
+              ? sourceText.slice(0, 800)
+              : `Topic: ${topic}\nKeyword: ${focusKeyword}`,
           rewrittenText: finalText,
           mode,
           outputFormat,
@@ -158,7 +214,6 @@ export function UploadTab() {
           createdAt: new Date().toISOString(),
         });
       }
-
     } catch (err: any) {
       if (err.name !== "AbortError" && !err.message?.includes("cancelled")) {
         setError(err.message || "An unexpected error occurred.");
@@ -170,20 +225,27 @@ export function UploadTab() {
   function cancelRewrite() {
     abortRef.current?.abort();
     setProgress({ status: "idle", progress: 0, currentText: "" });
+    setError(null);
   }
 
-  function copyToClipboard() {
-    navigator.clipboard.writeText(progress.currentText);
+  async function copyToClipboard() {
+    try {
+      await navigator.clipboard.writeText(progress.currentText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Clipboard write failed");
+    }
   }
 
   function downloadFile() {
-    const ext = outputFormat === "cms-html" ? "html" : outputFormat === "chirpy" ? "md" : "md";
-    const mimeType = outputFormat === "cms-html" ? "text/html" : "text/markdown";
+    const ext = outputFormat === "cms-html" ? "html" : "md";
+    const mimeType = outputFormat === "cms-html" ? "text/html;charset=utf-8" : "text/markdown;charset=utf-8";
     const blob = new Blob([progress.currentText], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase() || "article"}.${ext}`;
+    a.download = `${topic.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase().slice(0, 60) || "article"}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -191,12 +253,13 @@ export function UploadTab() {
   function resetForm() {
     setProgress({ status: "idle", progress: 0, currentText: "" });
     setError(null);
+    setWarnings([]);
     setSourceText("");
+    setFileName(null);
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-      {/* Generation Mode Toggle */}
+    <div className="max-w-4xl mx-auto space-y-5 animate-fade-in">
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
           <RefreshCw size={14} className="text-amber-500" />
@@ -214,7 +277,7 @@ export function UploadTab() {
           >
             <span className="block font-semibold">Generate from Scratch</span>
             <span className={`text-xs ${genMode === "generate" ? "text-amber-100" : "text-muted-foreground"}`}>
-              Write a new article from topic + keyword
+              New article from topic + keyword
             </span>
           </button>
           <button
@@ -226,15 +289,14 @@ export function UploadTab() {
                 : "bg-muted text-foreground hover:bg-muted/80 border border-border"
             }`}
           >
-            <span className="block font-semibold">Rewrite Existing Article</span>
+            <span className="block font-semibold">Rewrite Existing</span>
             <span className={`text-xs ${genMode === "rewrite" ? "text-amber-100" : "text-muted-foreground"}`}>
-              Paste an article to rewrite
+              Paste or upload source article
             </span>
           </button>
         </div>
       </div>
 
-      {/* Topic Input */}
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
           <PenTool size={14} className="text-amber-500" />
@@ -244,13 +306,13 @@ export function UploadTab() {
           type="text"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="e.g., Newborn Circumcision Care, Baby Sleep Training, Toddler Nutrition..."
+          placeholder="e.g., Newborn Circumcision Care, Baby Sleep Training..."
           className="input"
           disabled={isProcessing}
+          maxLength={200}
         />
       </div>
 
-      {/* Focus Keyword + Word Count */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-semibold flex items-center gap-2">
@@ -264,6 +326,7 @@ export function UploadTab() {
             placeholder="e.g., newborn circumcision care"
             className="input"
             disabled={isProcessing}
+            maxLength={100}
           />
         </div>
 
@@ -291,7 +354,6 @@ export function UploadTab() {
         </div>
       </div>
 
-      {/* Author Name */}
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
           <User size={14} className="text-amber-500" />
@@ -304,56 +366,101 @@ export function UploadTab() {
           placeholder="ChildBloom Editorial"
           className="input"
           disabled={isProcessing}
+          maxLength={80}
         />
       </div>
 
-      {/* Source Text (only in rewrite mode) */}
       {genMode === "rewrite" && (
-        <div className="space-y-2 animate-fade-in">
+        <div className="space-y-3 animate-fade-in">
           <label className="text-sm font-semibold flex items-center gap-2">
             <FileText size={14} className="text-amber-500" />
-            Source Article to Rewrite
+            Source Article
           </label>
+
+          <div
+            onDrop={onDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className="border-2 border-dashed border-border rounded-xl p-5 text-center hover:border-amber-400/60 transition-colors cursor-pointer bg-card/40"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm font-medium">Drop file or click to upload</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              .txt · .md · .docx · .pdf · .html (max 10 MB)
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.markdown,.docx,.pdf,.html,.htm"
+              className="hidden"
+              onChange={onFileSelect}
+              disabled={isProcessing}
+            />
+          </div>
+
+          {fileName && (
+            <div className="flex items-center gap-2 text-sm bg-muted/60 rounded-lg px-3 py-2">
+              <FileText size={14} className="text-amber-600" />
+              <span className="truncate flex-1">{fileName}</span>
+              <button
+                onClick={() => {
+                  setFileName(null);
+                  setSourceText("");
+                }}
+                className="p-1 hover:bg-background rounded"
+                aria-label="Remove file"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <textarea
             value={sourceText}
             onChange={(e) => setSourceText(e.target.value)}
-            placeholder="Paste the article you want to rewrite here..."
-            className="input min-h-[200px] resize-y font-mono text-sm"
+            placeholder="Or paste the article text here..."
+            className="input min-h-[180px] resize-y font-mono text-sm"
             disabled={isProcessing}
           />
           <p className="text-xs text-muted-foreground">
-            {sourceText.trim() ? `${countWords(sourceText)} words pasted` : "Paste your article text above"}
+            {sourceText.trim()
+              ? `${countWords(sourceText).toLocaleString()} words`
+              : "Paste or upload source text"}
           </p>
         </div>
       )}
 
-      {/* Mode Selector */}
       <ModeSelector value={mode} onChange={setMode} />
 
-      {/* Output Format */}
       <div className="space-y-2">
         <label className="text-sm font-semibold flex items-center gap-2">
           <Sparkles size={14} className="text-amber-500" />
           Output Format
         </label>
         <div className="grid grid-cols-3 gap-2">
-          {([
-            { id: "cms-html" as const, label: "CMS-Ready HTML", desc: "WordPress-ready" },
-            { id: "chirpy" as const, label: "Chirpy Jekyll", desc: "GitHub Pages" },
-            { id: "clean-md" as const, label: "Clean Markdown", desc: "Universal" },
-          ]).map((fmt) => (
+          {(
+            [
+              { id: "cms-html" as const, label: "CMS-Ready HTML", desc: "WordPress-ready" },
+              { id: "chirpy" as const, label: "Chirpy Jekyll", desc: "GitHub Pages" },
+              { id: "clean-md" as const, label: "Clean Markdown", desc: "Universal" },
+            ] as const
+          ).map((fmt) => (
             <button
               key={fmt.id}
               onClick={() => setOutputFormat(fmt.id)}
               disabled={isProcessing}
-              className={`px-4 py-3 rounded-lg text-sm transition-all ${
+              className={`px-3 py-3 rounded-lg text-sm transition-all ${
                 outputFormat === fmt.id
                   ? "bg-amber-500 text-white shadow-md shadow-amber-200/40"
                   : "bg-muted text-foreground hover:bg-muted/80 border border-border"
               }`}
             >
-              <span className="block font-semibold">{fmt.label}</span>
-              <span className={`text-xs ${outputFormat === fmt.id ? "text-amber-100" : "text-muted-foreground"}`}>
+              <span className="block font-semibold text-xs sm:text-sm">{fmt.label}</span>
+              <span
+                className={`text-[11px] ${
+                  outputFormat === fmt.id ? "text-amber-100" : "text-muted-foreground"
+                }`}
+              >
                 {fmt.desc}
               </span>
             </button>
@@ -361,25 +468,37 @@ export function UploadTab() {
         </div>
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-          <AlertCircle size={16} />
-          {error}
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="flex gap-3">
+      {warnings.length > 0 && isComplete && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium mb-1">Validation notes</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-3">
         {isProcessing ? (
           <button onClick={cancelRewrite} className="btn-primary bg-red-500 hover:bg-red-600">
-            Cancel Generation
+            Cancel
           </button>
         ) : (
           <button
             onClick={generateArticle}
             disabled={!canGenerate}
-            className="btn-primary animate-pulse-glow"
+            className="btn-primary animate-pulse-glow disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Zap size={14} />
             {genMode === "rewrite" ? "Rewrite Article" : "Generate Article"}
@@ -387,21 +506,21 @@ export function UploadTab() {
         )}
       </div>
 
-      {/* Streaming Output */}
       <StreamingOutput
         content={progress.currentText}
         status={progress.status}
         progress={progress.progress}
+        outputFormat={outputFormat}
       />
 
-      {/* Post-complete Actions */}
       {isComplete && (
         <div className="flex flex-wrap gap-2 animate-slide-up">
           <button className="btn-secondary" onClick={copyToClipboard}>
-            <Copy size={14} /> Copy
+            {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+            {copied ? "Copied" : "Copy"}
           </button>
           <button className="btn-secondary" onClick={downloadFile}>
-            <Download size={14} /> Download {outputFormat === "cms-html" ? ".html" : ".md"}
+            <Download size={14} /> Download .{outputFormat === "cms-html" ? "html" : "md"}
           </button>
           <button className="btn-secondary" onClick={resetForm}>
             <RotateCcw size={14} /> New Article
