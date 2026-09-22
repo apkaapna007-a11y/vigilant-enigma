@@ -1,5 +1,5 @@
 // File parser: extracts text from various file formats
-// All parsers run client-side in the browser
+// All parsers run client-side in the browser — nothing leaves the device
 
 export interface ParsedFile {
   text: string;
@@ -53,8 +53,18 @@ export async function parseFile(file: File): Promise<ParsedFile> {
       throw new Error(`Unsupported file type: ${ext}`);
   }
 
+  // Normalize whitespace for cleaner prompts
+  text = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!text || text.length < 20) {
+    throw new Error("Could not extract meaningful text from this file.");
+  }
+
   return {
-    text: text.trim(),
+    text,
     fileName: file.name,
     fileSize: file.size,
     fileType: ext,
@@ -65,13 +75,15 @@ async function parseHtml(file: File): Promise<string> {
   const html = await file.text();
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-  // Remove script and style elements
-  doc.querySelectorAll("script, style, noscript, iframe").forEach(el => el.remove());
-  return doc.body.textContent || "";
+  // Remove non-content elements
+  doc.querySelectorAll("script, style, noscript, iframe, svg, nav, footer, header, aside").forEach((el) => el.remove());
+  // Prefer article / main content if present
+  const main = doc.querySelector("article, main, .post-content, .entry-content, #content");
+  const root = main || doc.body;
+  return root?.textContent || "";
 }
 
 async function parseDocx(file: File): Promise<string> {
-  // Dynamic import to avoid bundling mammoth if not needed
   const mammoth = (await import("mammoth")).default;
   const arrayBuffer = await file.arrayBuffer();
   const result = await mammoth.extractRawText({ arrayBuffer });
@@ -79,10 +91,7 @@ async function parseDocx(file: File): Promise<string> {
 }
 
 async function parsePdf(file: File): Promise<string> {
-  // Dynamic import pdfjs-dist — uses CDN worker
   const pdfjsLib = await import("pdfjs-dist");
-
-  // Set worker source to CDN
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
   const arrayBuffer = await file.arrayBuffer();
@@ -93,7 +102,7 @@ async function parsePdf(file: File): Promise<string> {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     const pageText = content.items
-      .map((item: any) => item.str)
+      .map((item: any) => ("str" in item ? item.str : ""))
       .join(" ");
     textParts.push(pageText);
   }
