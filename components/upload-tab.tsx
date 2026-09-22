@@ -25,6 +25,13 @@ import {
 } from "lucide-react";
 
 const WORD_COUNTS = [1500, 2000, 2500, 3000, 4000];
+const AUTHOR_PRESETS = [
+  "Dr. Ahmed Raza",
+  "Dr. Michael Aderson, MD",
+  "Dr. Sarah Williams",
+  "Dr. Emily Chen",
+  "Dr. Sophia",
+] as const;
 type GenerationMode = "generate" | "rewrite";
 type WorkflowMode = "single" | "multi";
 
@@ -333,6 +340,18 @@ export function UploadTab() {
           <User size={14} className="text-amber-500" />
           Author Name
         </label>
+        <select
+          value={AUTHOR_PRESETS.includes(authorName as (typeof AUTHOR_PRESETS)[number]) ? authorName : "__custom__"}
+          onChange={(e) => {
+            if (e.target.value !== "__custom__") setAuthorName(e.target.value);
+          }}
+          className="input"
+          disabled={isProcessing}
+          aria-label="Choose an author preset"
+        >
+          <option value="__custom__">Custom author name</option>
+          {AUTHOR_PRESETS.map((author) => <option key={author} value={author}>{author}</option>)}
+        </select>
         <input
           type="text"
           value={authorName}
@@ -514,6 +533,17 @@ export function UploadTab() {
             <User size={14} className="text-amber-500" />
             Author Name
           </label>
+          <select
+            value={AUTHOR_PRESETS.includes(authorName as (typeof AUTHOR_PRESETS)[number]) ? authorName : "__custom__"}
+            onChange={(e) => {
+              if (e.target.value !== "__custom__") setAuthorName(e.target.value);
+            }}
+            className="input"
+            aria-label="Choose an author preset"
+          >
+            <option value="__custom__">Custom author name</option>
+            {AUTHOR_PRESETS.map((author) => <option key={author} value={author}>{author}</option>)}
+          </select>
           <input
             type="text"
             value={authorName}
