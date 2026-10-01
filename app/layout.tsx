@@ -5,9 +5,9 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ChildBloom AI Rewriter — Pediatric Content Studio",
-  description: "A private, installable workspace for creating evidence-based pediatric health and parenting content.",
-  applicationName: "ChildBloom Rewriter",
+  title: "SignalForge — Paper Trading Lab",
+  description: "A safe paper-trading command center for strategy experiments, backtests, and risk controls.",
+  applicationName: "SignalForge",
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icons/icon.svg", apple: "/icons/apple-touch-icon.svg" },
   appleWebApp: { capable: true, title: "ChildBloom Rewriter", statusBarStyle: "default" },
@@ -27,4 +27,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

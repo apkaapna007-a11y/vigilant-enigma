@@ -1,149 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { UploadTab } from "@/components/upload-tab";
-import { HistoryTab } from "@/components/history-tab";
-import { SettingsTab } from "@/components/settings-tab";
-import { DashboardTab } from "@/components/dashboard-tab";
-import { Activity, Download, FileText, History, Layers3, LockKeyhole, Settings, Sparkles, BarChart3, Zap } from "lucide-react";
+import { useState } from "react";
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  CircleHelp,
+  Download,
+  Gauge,
+  KeyRound,
+  LayoutDashboard,
+  Menu,
+  Moon,
+  PanelLeft,
+  Play,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Terminal,
+  WalletCards,
+  X,
+  Zap,
+} from "lucide-react";
+import { TradingDashboard } from "@/components/trading-dashboard";
+
+const navItems = [
+  { label: "Overview", icon: LayoutDashboard },
+  { label: "Strategies", icon: Bot },
+  { label: "Backtests", icon: BarChart3 },
+  { label: "Activity log", icon: Terminal },
+];
 
 export default function Home() {
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    const standalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as Navigator & { standalone?: boolean }).standalone;
-    setIsInstalled(Boolean(standalone));
-    const handleInstallPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
-    const handleInstalled = () => setIsInstalled(true);
-    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
-    window.addEventListener("appinstalled", handleInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
-      window.removeEventListener("appinstalled", handleInstalled);
-    };
-  }, []);
-
-  async function installApp() {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    setInstallPrompt(null);
-  }
+  const [activeNav, setActiveNav] = useState("Overview");
+  const [paperMode, setPaperMode] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col selection:bg-primary/20">
-      {/* Premium Header */}
-      <header className="sticky top-0 z-40 border-b border-border/70 glass-elevated safe-top">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-[4.25rem] flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative size-10 rounded-xl bg-gradient-to-br from-primary via-primary to-teal-700 flex items-center justify-center shrink-0 shadow-lg shadow-primary/20 animate-float">
-              <FileText className="text-primary-foreground" size={18} aria-hidden="true" />
-              <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-amber-400 ring-2 ring-card" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-[15px] font-bold tracking-tight truncate">ChildBloom Studio</h1>
-                <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-primary/10 to-amber-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary border border-primary/10">
-                  <Sparkles size={10} /> Pro workspace
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">Pediatric content production</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-muted-foreground rounded-full border border-border/80 bg-background/60 px-3 py-1.5">
-              <LockKeyhole size={12} className="text-primary" /> Private by design
-            </div>
-            <div className="hidden md:flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-200/80 dark:border-emerald-900/80 bg-emerald-50/70 dark:bg-emerald-950/30 px-3 py-1.5">
-              <Activity size={12} /> All systems ready
-            </div>
-            {installPrompt && !isInstalled && (
-              <button type="button" onClick={installApp} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg border border-border bg-card px-3 py-2 hover:bg-muted transition-colors">
-                <Download size={13} /><span className="hidden sm:inline">Install app</span>
-              </button>
-            )}
-          </div>
-        </div>
+    <div className="min-h-screen bg-[#f5f7fb] text-[#101828]">
+      <header className="flex h-16 items-center justify-between border-b border-[#e4e7ec] bg-white px-4 lg:hidden">
+        <div className="flex items-center gap-3"><Logo /><span className="font-semibold tracking-tight">SignalForge</span></div>
+        <button className="rounded-lg p-2 hover:bg-[#f2f4f7]" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle navigation">
+          {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
       </header>
-
-      <main className="relative flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-7 sm:py-10">
-        {/* Background decoration */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 overflow-hidden opacity-60">
-          <div className="absolute -left-20 -top-28 size-80 rounded-full bg-primary/8 blur-3xl animate-float" />
-          <div className="absolute right-0 top-0 size-72 rounded-full bg-amber-400/8 blur-3xl" />
-          <div className="absolute left-1/3 top-20 size-60 rounded-full bg-blue-400/5 blur-3xl" />
-        </div>
-
-        {/* Hero Section */}
-        <section className="mb-7 sm:mb-9 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" /> Content operations
-            </p>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-[-0.03em] text-foreground">
-              Your content <span className="gradient-text">command center</span>.
-            </h2>
-            <p className="mt-3 text-sm sm:text-[15px] leading-6 text-muted-foreground max-w-2xl">
-              Transform pediatric source material into polished, E-E-A-T aligned articles with a focused single rewrite or a high-throughput multi-topic batch queue with templates, priorities, and analytics.
-            </p>
+      <div className="flex min-h-screen lg:min-h-0">
+        <aside className={`${sidebarOpen ? "fixed inset-0 z-30 flex" : "hidden"} w-64 shrink-0 flex-col border-r border-[#e4e7ec] bg-[#111827] text-white lg:sticky lg:top-0 lg:flex lg:h-screen`}>
+          <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6"><Logo light /><div><p className="font-semibold tracking-tight">SignalForge</p><p className="text-[10px] uppercase tracking-[0.18em] text-[#98a2b3]">Trading lab</p></div></div>
+          <div className="flex-1 px-3 py-6">
+            <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#667085]">Workspace</p>
+            <nav className="space-y-1">
+              {navItems.map(({ label, icon: Icon }) => <button key={label} onClick={() => { setActiveNav(label); setSidebarOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${activeNav === label ? "bg-white/10 font-medium text-white" : "text-[#98a2b3] hover:bg-white/5 hover:text-white"}`}><Icon size={17} />{label}{label === "Activity log" && <span className="ml-auto rounded-full bg-[#344054] px-1.5 py-0.5 text-[10px]">12</span>}</button>)}
+            </nav>
+            <p className="mb-3 mt-9 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#667085]">Controls</p>
+            <nav className="space-y-1"><button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[#98a2b3] hover:bg-white/5 hover:text-white"><SlidersHorizontal size={17} />Risk settings</button><button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[#98a2b3] hover:bg-white/5 hover:text-white"><Settings2 size={17} />Integrations</button></nav>
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:min-w-[333px]">
-            <div className="stat-card">
-              <Layers3 size={15} className="mb-2 text-primary" />
-              <p className="text-sm font-bold">Batch ready</p>
-              <p className="text-[11px] text-muted-foreground">CSV/JSON import</p>
-            </div>
-            <div className="stat-card">
-              <FileText size={15} className="mb-2 text-amber-600" />
-              <p className="text-sm font-bold">3 formats</p>
-              <p className="text-[11px] text-muted-foreground">CMS · Jekyll · MD</p>
-            </div>
-            <div className="stat-card">
-              <LockKeyhole size={15} className="mb-2 text-emerald-600" />
-              <p className="text-sm font-bold">Local-first</p>
-              <p className="text-[11px] text-muted-foreground">Keys stay local</p>
-            </div>
+          <div className="border-t border-white/10 p-4"><div className="mb-3 flex items-center gap-2 text-xs text-[#98a2b3]"><span className="h-2 w-2 rounded-full bg-[#12b76a]" />All systems operational</div><div className="flex items-center gap-3 rounded-lg bg-white/5 p-3"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#475467] text-xs font-semibold">AA</div><div className="min-w-0"><p className="truncate text-xs font-medium">Paper account</p><p className="truncate text-[10px] text-[#98a2b3]">Local workspace</p></div><CircleHelp size={14} className="ml-auto text-[#667085]" /></div></div>
+        </aside>
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-6 lg:px-10 lg:py-8">
+            <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-start"><div><div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#667085]"><span>Workspace</span><span>/</span><span className="text-[#344054]">{activeNav}</span></div><h1 className="text-2xl font-semibold tracking-[-0.03em] text-[#101828] sm:text-[30px]">Good morning, Alex <span className="text-[#98a2b3]">·</span> <span className="text-[#667085]">paper trading overview</span></h1><p className="mt-2 text-sm text-[#667085]">Your strategies are screened by rules, risk gates, and an AI confidence check before any simulated order.</p></div><div className="flex items-center gap-3"><button className="hidden items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white px-3 py-2 text-sm font-medium text-[#344054] shadow-sm hover:bg-[#f9fafb] sm:flex"><Download size={15} />Export report</button><div className="flex items-center gap-2 rounded-lg border border-[#d0d5dd] bg-white p-1.5 pl-3 shadow-sm"><span className="text-xs font-medium text-[#667085]">Paper mode</span><button onClick={() => setPaperMode(!paperMode)} aria-label="Toggle paper mode" className={`relative h-5 w-9 rounded-full transition ${paperMode ? "bg-[#12b76a]" : "bg-[#98a2b3]"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${paperMode ? "left-[18px]" : "left-0.5"}`} /></button></div></div></div>
+            <TradingDashboard paperMode={paperMode} activeNav={activeNav} />
           </div>
-        </section>
-
-        {/* Main Tabs */}
-        <Tabs defaultTab="dashboard">
-          <div className="rounded-2xl border border-border/80 bg-card/70 shadow-[0_18px_50px_-30px_hsl(222_25%_12%_/_0.35)] overflow-hidden backdrop-blur-sm">
-            <TabsList className="w-full justify-start gap-1 border-b border-border/70 bg-muted/30 p-2 h-auto rounded-none">
-              <TabsTrigger value="dashboard" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm">
-                <BarChart3 size={15} /><span>Dashboard</span>
-              </TabsTrigger>
-              <TabsTrigger value="upload" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm">
-                <FileText size={15} /><span>Rewrite workspace</span>
-              </TabsTrigger>
-              <TabsTrigger value="history" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm">
-                <History size={15} /><span>History</span>
-              </TabsTrigger>
-              <TabsTrigger value="settings" className="gap-2 rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-sm">
-                <Settings size={15} /><span>Settings</span>
-              </TabsTrigger>
-            </TabsList>
-            <div className="p-4 sm:p-6 lg:p-8">
-              <TabsContent value="dashboard" className="mt-0"><DashboardTab /></TabsContent>
-              <TabsContent value="upload" className="mt-0"><UploadTab /></TabsContent>
-              <TabsContent value="history" className="mt-0"><HistoryTab /></TabsContent>
-              <TabsContent value="settings" className="mt-0"><SettingsTab /></TabsContent>
-            </div>
-          </div>
-        </Tabs>
-      </main>
-
-      {/* Premium Footer */}
-      <footer className="border-t border-border/70 bg-card/40 py-4 safe-bottom">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <p>Private browser workspace for <a href="https://childbloom.site" target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">childbloom.site</a></p>
-          <p>ChildBloom Studio · v2.0 · Built for thoughtful publishing</p>
-        </div>
-      </footer>
+        </main>
+      </div>
     </div>
   );
 }
 
-type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
+function Logo({ light = false }: { light?: boolean }) { return <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${light ? "bg-[#1d2939]" : "bg-[#111827]"}`}><Zap size={18} className="text-[#32d583]" fill="currentColor" /></div>; }
